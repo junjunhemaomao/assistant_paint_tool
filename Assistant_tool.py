@@ -18,11 +18,17 @@ CURRENT_VERSION = "3.5"
 
 # GitHub 文件路径
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
-GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/modeling_tool.py"
+GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/Assistant_tool.py"
 GITHUB_BANNER_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/3D_Modeling_Assistant.png"
 
-# 本地脚本路径（请修改为你本地实际路径）
-LOCAL_SCRIPT_PATH = "C:/Users/xjw/Documents/maya/2019/prefs/scripts/Assistant_tool.py"
+# ------------------------------
+# 本地脚本路径（动态获取）
+# ------------------------------
+try:
+    LOCAL_SCRIPT_PATH = os.path.abspath(__file__)
+except NameError:
+    # 在 Maya 控制台直接运行，__file__ 不存在
+    LOCAL_SCRIPT_PATH = os.path.abspath(sys.argv[0])
 
 # ------------------------------
 # Tool Functions
@@ -150,7 +156,6 @@ def check_for_updates(*args):
         cmds.warning("Error checking updates from GitHub.")
 
 def update_tool(*args):
-    """自动下载最新脚本并覆盖本地，同时重新加载 UI"""
     global modeling_tools_dialog
     try:
         response = requests.get(GITHUB_SCRIPT_URL, stream=True)
@@ -185,7 +190,7 @@ def update_tool(*args):
 # ------------------------------
 def maya_main_window():
     ptr = omui.MQtUtil.mainWindow()
-    return wrapInstance(long(ptr), QtWidgets.QWidget)
+    return wrapInstance(int(ptr), QtWidgets.QWidget)  # 兼容 Python 2/3
 
 class ModelingToolsUI(QtWidgets.QDialog):
     def __init__(self, parent=maya_main_window()):
@@ -214,7 +219,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
             }
         """
 
-        # Banner Image
+        # Banner Image 自动从 GitHub 加载
         self.banner_label = QtWidgets.QLabel()
         self.banner_label.setAlignment(QtCore.Qt.AlignCenter)
         self.banner_label.setCursor(QtCore.Qt.PointingHandCursor)
@@ -322,7 +327,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
 
     def open_github(self, event):
         import webbrowser
-        webbrowser.open("https://github.com/junjunhemaomao")
+        webbrowser.open("https://github.com/junjunhemaomao/assistant_paint_tool")
 
 # ------------------------------
 # Show UI
