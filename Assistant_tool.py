@@ -18,10 +18,11 @@ CURRENT_VERSION = "3.5"
 
 # GitHub 文件路径
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
-GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/Assistant_tool.py"
+GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/modeling_tool.py"
+GITHUB_BANNER_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/3D_Modeling_Assistant.png"
 
 # 本地脚本路径（请修改为你本地实际路径）
-LOCAL_SCRIPT_PATH = "C:/Users/xjw/Documents/maya/2019/prefs/scripts/modeling_tool.py"
+LOCAL_SCRIPT_PATH = "C:/Users/xjw/Documents/maya/2019/prefs/scripts/Assistant_tool.py"
 
 # ------------------------------
 # Tool Functions
@@ -113,22 +114,17 @@ def detach_selected_faces(*args):
     if not orig_face_sel:
         cmds.warning("No faces selected")
         return
-
     orig_obj_shape = cmds.listRelatives(orig_face_sel[0], parent=True)
     orig_obj = cmds.listRelatives(orig_obj_shape[0], parent=True)
-
     face_num = [face.split(".")[1] for face in orig_face_sel]
     new_obj = cmds.duplicate(orig_obj[0], un=True)[0]
     cmds.delete(new_obj, ch=True)
-
     new_face_sel = ["{0}.{1}".format(new_obj, f) for f in face_num]
     cmds.delete(orig_face_sel)
-
     all_faces = cmds.ls("{0}.f[*]".format(new_obj), flatten=True)
     faces_to_delete = list(set(all_faces) - set(new_face_sel))
     if faces_to_delete:
         cmds.delete(faces_to_delete)
-
     cmds.select(new_obj)
 
 # ------------------------------
@@ -144,7 +140,6 @@ def check_for_updates(*args):
                 cmds.confirmDialog(title="Update Available",
                                    message="New version {} available!".format(latest_version),
                                    button=["OK"])
-                # 激活 Update 按钮，改成蓝色可点击
                 modeling_tools_dialog.btn_update.setEnabled(True)
                 modeling_tools_dialog.btn_update.setStyleSheet(modeling_tools_dialog.btn_style)
             else:
@@ -163,16 +158,13 @@ def update_tool(*args):
             tmp_path = LOCAL_SCRIPT_PATH + ".tmp"
             with open(tmp_path, "wb") as f:
                 f.write(response.content)
-            # 覆盖原文件
             shutil.move(tmp_path, LOCAL_SCRIPT_PATH)
             cmds.confirmDialog(title="Update Complete", message="Tool updated successfully.", button=["OK"])
-            # 关闭旧 UI
             try:
                 modeling_tools_dialog.close()
                 modeling_tools_dialog.deleteLater()
             except:
                 pass
-            # 延迟重新加载 UI
             def reload_ui():
                 time.sleep(0.2)
                 if os.path.dirname(LOCAL_SCRIPT_PATH) not in sys.path:
@@ -225,12 +217,19 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # Banner Image
         self.banner_label = QtWidgets.QLabel()
         self.banner_label.setAlignment(QtCore.Qt.AlignCenter)
-        image_path = "C:/Users/xjw/Documents/maya/2019/prefs/icons/3D_Modeling_Assistant.png"
-        pixmap = QtGui.QPixmap(image_path)
-        if not pixmap.isNull():
-            pixmap = pixmap.scaledToWidth(380, QtCore.Qt.SmoothTransformation)
-        self.banner_label.setPixmap(pixmap)
         self.banner_label.setCursor(QtCore.Qt.PointingHandCursor)
+        try:
+            response = requests.get(GITHUB_BANNER_URL)
+            if response.status_code == 200:
+                image_data = response.content
+                pixmap = QtGui.QPixmap()
+                pixmap.loadFromData(image_data)
+                pixmap = pixmap.scaledToWidth(380, QtCore.Qt.SmoothTransformation)
+                self.banner_label.setPixmap(pixmap)
+            else:
+                self.banner_label.setText("Banner image not found")
+        except:
+            self.banner_label.setText("Failed to load banner image")
 
         # 功能按钮
         self.btn_merge_center = QtWidgets.QPushButton("Merge to Center")
@@ -251,10 +250,9 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.btn_check_updates = QtWidgets.QPushButton("Check for Updates")
         self.btn_update = QtWidgets.QPushButton("Update")
         self.btn_update.setEnabled(False)
-        # 默认灰色不可用
         self.btn_update.setStyleSheet("""
             QPushButton {
-                background-color: #95a5a6;  /* 灰色 */
+                background-color: #95a5a6;
                 color: white;
                 border-radius: 6px;
                 padding: 6px;
@@ -270,10 +268,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
                     self.btn_delete_vertices, self.btn_bridge_edges, self.btn_insert_edge_loop,
                     self.btn_multi_cut, self.btn_fill_hole, self.btn_bevel_edges, self.btn_extrude_faces,
                     self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces,
-                    self.btn_check_updates, self.btn_update]:
+                    self.btn_check_updates]:
             btn.setFont(font)
-            if btn != self.btn_update:  # 除 Update 外其他按钮用统一蓝色样式
-                btn.setStyleSheet(self.btn_style)
+            btn.setStyleSheet(self.btn_style)
+        self.btn_update.setFont(font)  # Update 用单独灰色样式
 
         # Footer
         self.label_footer = QtWidgets.QLabel("3D Modeling Assistant Tools v{}".format(CURRENT_VERSION))
@@ -302,7 +300,6 @@ class ModelingToolsUI(QtWidgets.QDialog):
         add_group("Face Operations", [self.btn_extrude_faces])
         add_group("Object Operations", [self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces])
         add_group("Updates", [self.btn_check_updates, self.btn_update])
-
         main_layout.addWidget(self.label_footer)
 
     def create_connections(self):
@@ -319,11 +316,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.btn_separate_objects.clicked.connect(separate_objects)
         self.btn_combine_objects.clicked.connect(combine_objects)
         self.btn_detach_faces.clicked.connect(detach_selected_faces)
-
-        # Update 按钮
         self.btn_check_updates.clicked.connect(check_for_updates)
         self.btn_update.clicked.connect(update_tool)
-
         self.banner_label.mousePressEvent = self.open_github
 
     def open_github(self, event):
