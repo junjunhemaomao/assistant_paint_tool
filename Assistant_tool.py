@@ -417,7 +417,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
     def __init__(self, parent=maya_main_window()):
         super(ModelingToolsUI, self).__init__(parent)
         self.setWindowTitle(f"3D Assistant Tools v{CURRENT_VERSION}")
-        self.setMinimumWidth(600)
+        # 固定宽度为500像素
+        self.setFixedWidth(500)
         self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
         self.camera_snapshots = {}
         self.create_widgets()
@@ -447,7 +448,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
             if response.status_code == 200:
                 pixmap = QtGui.QPixmap()
                 pixmap.loadFromData(response.content)
-                pixmap = pixmap.scaledToWidth(460, QtCore.Qt.SmoothTransformation)
+                # 缩小横幅以适应500像素宽度
+                pixmap = pixmap.scaledToWidth(400, QtCore.Qt.SmoothTransformation)
                 self.banner_label.setPixmap(pixmap)
         except: pass
 
@@ -473,7 +475,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.hdri_progress = QtWidgets.QProgressBar()
         self.hdri_progress.setRange(0, 100)
         
-        SLIDER_WIDTH = 300
+        # 缩小滑块宽度以适应500像素宽度
+        SLIDER_WIDTH = 250
         self.hdri_exposure_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.hdri_exposure_slider.setRange(-40, 80)
         self.hdri_exposure_slider.setFixedWidth(SLIDER_WIDTH)
@@ -555,7 +558,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
 
     def create_layout(self):
         main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setSpacing(8)
+        main_layout.setSpacing(6)  # 减小间距
         main_layout.addWidget(self.banner_label)
         main_layout.addWidget(self.tabs)
         
@@ -568,7 +571,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # 建模选项卡
         modeling_page = QtWidgets.QWidget()
         modeling_layout = QtWidgets.QVBoxLayout(modeling_page)
-        modeling_layout.setSpacing(8)
+        modeling_layout.setSpacing(6)  # 减小间距
         
         # 创建带标题的分组函数
         def create_group(title, widgets):
@@ -597,14 +600,15 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # 材质选项卡
         mat_page = QtWidgets.QWidget()
         mat_layout = QtWidgets.QVBoxLayout(mat_page)
-        mat_layout.setSpacing(8)
+        mat_layout.setSpacing(6)  # 减小间距
         
         color_group = QtWidgets.QGroupBox("Color Presets")
         color_layout = QtWidgets.QVBoxLayout()
         
         color_grid = QtWidgets.QGridLayout()
+        # 每行4个按钮以适应500像素宽度
         for i, btn in enumerate(self.color_buttons):
-            color_grid.addWidget(btn, i//5, i%5)
+            color_grid.addWidget(btn, i//4, i%4)
         color_layout.addLayout(color_grid)
         
         tip_label = QtWidgets.QLabel("Tip: Select objects then click color button to assign material")
@@ -625,7 +629,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # 相机选项卡
         cam_page = QtWidgets.QWidget()
         cam_layout = QtWidgets.QVBoxLayout(cam_page)
-        cam_layout.setSpacing(8)
+        cam_layout.setSpacing(6)  # 减小间距
         
         cam_create_group = QtWidgets.QGroupBox("Camera")
         cam_create_layout = QtWidgets.QVBoxLayout()
@@ -651,7 +655,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # 灯光选项卡
         light_page = QtWidgets.QWidget()
         light_layout = QtWidgets.QVBoxLayout(light_page)
-        light_layout.setSpacing(8)
+        light_layout.setSpacing(6)  # 减小间距
         
         light_group = QtWidgets.QGroupBox("Light Creation")
         light_group_layout = QtWidgets.QGridLayout()
@@ -729,7 +733,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # 渲染选项卡
         render_page = QtWidgets.QWidget()
         render_layout = QtWidgets.QVBoxLayout(render_page)
-        render_layout.setSpacing(8)
+        render_layout.setSpacing(6)  # 减小间距
         
         render_group = QtWidgets.QGroupBox("Rendering")
         render_group_layout = QtWidgets.QVBoxLayout()
