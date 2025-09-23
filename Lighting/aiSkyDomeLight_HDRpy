@@ -1,25 +1,13 @@
 # -*- coding: utf-8 -*-
-# Poly Haven HDRI Helper for Maya (Arnold) - Single File with Proxy & Direct-Link Support
-# 新增/调整：
-# 1) aiSkyDomeLight intensity 修改
-# 2) aiSkyDomeLight camera 可见性修改（默认 camera=0）
-# 3) 顶部“帮助”菜单栏与“关于该工具”对话框
-# 4) 界面排版优化（分组布局）
-# 5) “打开 Poly Haven HDRIs”按钮放在最上方；“下载并应用”按钮与进度条放在“更改缓存位置”下方，长条显示
-
 import os
 import re
 import json
 import ssl
 import urllib.request
 import urllib.error
-
 from maya import cmds
 from PySide2 import QtCore, QtWidgets, QtGui
 
-# ---------------------------
-# Config
-# ---------------------------
 TOOL_TITLE = "Poly Haven HDRI aiSkyDomeLight"
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PolyHaven_HDRI")
 SUPPORTED_RES = ["1k", "2k", "4k", "8k", "16k"]
@@ -28,650 +16,354 @@ DL_HOST = "https://dl.polyhaven.org"
 UA = "PolyHaven-Maya-Helper/1.6"
 TIMEOUT = 60
 
-def make_ssl_ctx():
-    try:
-        return ssl.create_default_context()
-    except Exception:
-        # 旧系统兜底（至少 TLS1.2）
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        return ctx
+SSL_CTX = ssl.create_default_context()
 
-SSL_CTX = make_ssl_ctx()
-
-# ---------------------------
-# Utils: FS
-# ---------------------------
 def ensure_dir(path):
-    if not os.path.exists(path):
-        os.makedirs(path, exist_ok=True)
+    os.makedirs(path, exist_ok=True)
     return path
 
 def build_cache_path(asset, res, fmt):
     ensure_dir(CACHE_DIR)
     return os.path.join(CACHE_DIR, f"{asset}_{res}.{fmt}")
 
-# ---------------------------
-# Input parsing (supports asset name, asset page, and direct link)
-# ---------------------------
-RES_SET = {"1k","2k","4k","8k","16k"}
+RES_SET = {"1k", "2k", "4k", "8k", "16k"}
 
 def strip_trailing_res(slug):
-    # 把像 venice_sunset_2k 还原成 venice_sunset
     m = re.match(r'^(.+?)_([0-9]+k)$', slug)
-    if m and (m.group(2).lower() in RES_SET):
-        return m.group(1)
-    return slug
+    return m.group(1) if m and m.group(2).lower() in RES_SET else slug
 
 def parse_polyhaven_dl_url(text):
-    """
-    解析 Poly Haven 直链：
-    /HDRIs/{fmt}/{res}/{asset}_{res}.{fmt}
-    返回 (asset, res, fmt) 或 (None, None, None)
-    """
-    try:
-        m = re.search(
-            r'/HDRIs/(hdr|exr)/([0-9]+k)/([a-zA-Z0-9_\-]+)_([0-9]+k)\.(hdr|exr)$',
-            text
-        )
-        if not m:
-            return None, None, None
-        fmt_dir = m.group(1).lower()
-        res_dir = m.group(2).lower()
-        fname_asset = m.group(3)
-        ext = m.group(5).lower()
-        asset = strip_trailing_res(fname_asset)
-        return asset, res_dir, ext
-    except Exception:
-        return None, None, None
+    m = re.search(r'/HDRIs/(hdr|exr)/([0-9]+k)/([a-zA-Z0-9_\-]+)_([0-9]+k)\.(hdr|exr)$', text)
+    return (strip_trailing_res(m.group(3)), m.group(2).lower(), m.group(5).lower()) if m else (None, None, None)
 
 def parse_input(text):
-    """
-    综合解析：
-    - 若是官方直链，返回 (asset, res, fmt)
-    - 若是资产页/纯资产名/文件末尾名，返回 (asset, None, None)
-    """
-    if not text:
-        return None, None, None
+    if not text: return None, None, None
     text = text.strip()
-
-    # 1) 官方直链
+    
     if "dl.polyhaven.org/file/ph-assets/HDRIs" in text:
         a, r, f = parse_polyhaven_dl_url(text)
-        if a:
-            return a, r, f
-
-    # 2) 资产页 URL
+        if a: return a, r, f
+    
     m = re.search(r'/a/([a-zA-Z0-9_\-]+)', text)
-    if m:
-        return m.group(1), None, None
-
-    # 3) 纯资产名或末尾文件名
-    if re.match(r'^[a-zA-Z0-9_\-]+$', text):
-        return strip_trailing_res(text), None, None
+    if m: return m.group(1), None, None
+    
+    if re.match(r'^[a-zA-Z0-9_\-]+$', text): return strip_trailing_res(text), None, None
     m2 = re.search(r'/([a-zA-Z0-9_\-]+)(?:\.[a-zA-Z0-9]+)?$', text)
-    if m2:
-        return strip_trailing_res(m2.group(1)), None, None
+    return (strip_trailing_res(m2.group(1)), None, None) if m2 else (None, None, None)
 
-    return None, None, None
-
-# ---------------------------
-# HTTP helpers (with optional proxy)
-# ---------------------------
-class HttpClient(object):
-    def __init__(self, proxy_enabled=False, proxy_url=None):
-        self.proxy_enabled = proxy_enabled
-        self.proxy_url = proxy_url or ""
+class HttpClient:
+    def __init__(self):
+        pass
 
     def opener(self):
-        handlers = []
-        if self.proxy_enabled and self.proxy_url:
-            handlers.append(urllib.request.ProxyHandler({
-                "http": self.proxy_url,
-                "https": self.proxy_url
-            }))
-        else:
-            # 显式禁用系统代理（避免被系统代理劫持）
-            handlers.append(urllib.request.ProxyHandler({}))
-        handlers.append(urllib.request.HTTPSHandler(context=SSL_CTX))
+        handlers = [urllib.request.HTTPSHandler(context=SSL_CTX)]
         return urllib.request.build_opener(*handlers)
 
-    def open(self, url, method="GET", timeout=TIMEOUT, extra_headers=None):
-        headers = {"User-Agent": UA}
-        if extra_headers:
-            headers.update(extra_headers)
-        req = urllib.request.Request(url, method=method, headers=headers)
+    def open(self, url, method="GET", timeout=TIMEOUT, headers=None):
+        req = urllib.request.Request(url, method=method, headers={"User-Agent": UA, **(headers or {})})
         return self.opener().open(req, timeout=timeout)
 
     def try_head_or_range(self, url, timeout=15):
         try:
             with self.open(url, method="HEAD", timeout=timeout) as resp:
-                code = getattr(resp, "status", 200)
-                return 200 <= code < 400
+                return 200 <= getattr(resp, "status", 200) < 400
         except Exception:
             try:
-                with self.open(url, timeout=timeout, extra_headers={"Range": "bytes=0-64"}) as resp:
+                with self.open(url, timeout=timeout, headers={"Range": "bytes=0-64"}) as resp:
                     code = getattr(resp, "status", 200)
                     return (200 <= code < 400) or code == 206
             except Exception:
                 return False
 
-    def download(self, url, save_path, timeout=TIMEOUT, progress_cb=None):
+    def download(self, url, save_path, progress_cb=None):
         tmp_path = save_path + ".part"
         try:
-            with self.open(url, timeout=timeout) as resp:
-                total = resp.headers.get("Content-Length")
-                total = int(total) if total is not None else None
+            with self.open(url) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
                 with open(tmp_path, "wb") as f:
-                    chunk = 1024 * 256
                     read = 0
                     while True:
-                        data = resp.read(chunk)
-                        if not data:
-                            break
+                        data = resp.read(262144)
+                        if not data: break
                         f.write(data)
                         read += len(data)
-                        if progress_cb and total:
-                            try:
-                                progress_cb(read, total)
-                            except Exception:
-                                pass
-            if os.path.exists(save_path):
-                os.remove(save_path)
-            os.rename(tmp_path, save_path)
+                        if progress_cb and total: progress_cb(read, total)
+            os.replace(tmp_path, save_path)
             return save_path
-        except Exception as e:
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except Exception:
-                pass
-            raise e
+        finally:
+            if os.path.exists(tmp_path): os.remove(tmp_path)
 
-# ---------------------------
-# Poly Haven API & URL rules
-# ---------------------------
-def get_asset_category(client, asset, timeout=8):
-    # 返回 'hdris' / 'textures' / 'models' 等；失败返回 None
-    api = f"https://api.polyhaven.com/id/{asset}"
+def get_asset_category(client, asset):
     try:
-        with client.open(api, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return (data.get("category") or "").lower() or None
+        with client.open(f"https://api.polyhaven.com/id/{asset}", timeout=8) as resp:
+            return json.load(resp).get("category", "").lower() or None
     except Exception:
         return None
 
-def query_hdri_files(client, asset, timeout=12):
-    """
-    期望返回：
-    {
-      "hdr": {"1k": "https://dl.polyhaven.org/...hdr", ...},
-      "exr": {"1k": "https://dl.polyhaven.org/...exr", ...}
-    }
-    失败返回 {}
-    """
-    api = f"https://api.polyhaven.com/files/hdris/{asset}"
+def query_hdri_files(client, asset):
     try:
-        with client.open(api, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            out = {}
-            for fmt in ("hdr", "exr"):
-                if fmt in data and isinstance(data[fmt], dict):
-                    out[fmt] = {}
-                    for res, rel in data[fmt].items():
-                        if rel:
-                            out[fmt][res] = DL_HOST + rel  # API 返回相对路径，这里补全成绝对
-            return out
+        with client.open(f"https://api.polyhaven.com/files/hdris/{asset}", timeout=12) as resp:
+            data = json.load(resp)
+            return {
+                fmt: {res: DL_HOST + rel for res, rel in res_map.items() if rel}
+                for fmt, res_map in data.items() if fmt in ("hdr", "exr")
+            }
     except Exception:
         return {}
 
 def build_direct_url(asset, res, fmt):
-    # 正确直链命名：必须带分辨率后缀 {asset}_{res}.{fmt}
     return f"{DL_HOST}/file/ph-assets/HDRIs/{fmt}/{res}/{asset}_{res}.{fmt}"
 
-def try_download_with_fallbacks(client, asset, pref_res, pref_fmt, progress_cb=None):
-    """
-    返回 (save_path, used_res, used_fmt, tried_urls) 或 (None, None, None, tried_urls)
-    """
+def try_download(client, asset, pref_res, pref_fmt, progress_cb=None):
+    files = query_hdri_files(client, asset)
+    res_order = [pref_res] + [r for r in ["16k", "8k", "4k", "2k", "1k"] if r != pref_res]
+    fmt_order = [pref_fmt] + [f for f in ("hdr", "exr") if f != pref_fmt]
     tried = []
 
-    files = query_hdri_files(client, asset)
-
-    res_order_all = ["16k", "8k", "4k", "2k", "1k"]
-    res_order = [pref_res] + [r for r in res_order_all if r != pref_res]
-    fmt_order = [pref_fmt] + [f for f in ("hdr", "exr") if f != pref_fmt]
-
-    # A) API 优先
-    if files:
-        for fmt in fmt_order:
-            if fmt not in files:
-                continue
-            for res in res_order:
-                url = files[fmt].get(res)
-                if not url:
-                    continue
-                tried.append(url)
-                save_path = build_cache_path(asset, res, fmt)
-                if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
-                    return save_path, res, fmt, tried
-                try:
-                    client.download(url, save_path, progress_cb=progress_cb)
-                    return save_path, res, fmt, tried
-                except Exception:
-                    continue
-        return None, None, None, tried
-
-    # B) API 不可用：直链规则 + 探测
     for fmt in fmt_order:
         for res in res_order:
-            url = build_direct_url(asset, res, fmt)
+            url = files.get(fmt, {}).get(res) if files else build_direct_url(asset, res, fmt)
+            if not url: continue
             tried.append(url)
             save_path = build_cache_path(asset, res, fmt)
             if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
                 return save_path, res, fmt, tried
-            if not client.try_head_or_range(url):
-                continue
+            if not files and not client.try_head_or_range(url): continue
             try:
-                client.download(url, save_path, progress_cb=progress_cb)
+                client.download(url, save_path, progress_cb)
                 return save_path, res, fmt, tried
             except Exception:
                 continue
     return None, None, None, tried
 
-# ---------------------------
-# Maya / Arnold helpers
-# ---------------------------
 def get_or_create_skydome():
-    existing_shapes = cmds.ls(type="aiSkyDomeLight") or []
-    for s in existing_shapes:
-        t = cmds.listRelatives(s, parent=True, fullPath=True) or []
-        if t:
-            return t[0], s
+    existing = next((s for s in cmds.ls(type="aiSkyDomeLight") or [] if cmds.listRelatives(s, parent=True)), None)
+    if existing: return cmds.listRelatives(existing, parent=True)[0], existing
+    
     shape = cmds.shadingNode("aiSkyDomeLight", asLight=True, name="HDR_SkyDomeShape")
-    transform = cmds.listRelatives(shape, parent=True, fullPath=True)[0]
-    try:
-        transform = cmds.rename(transform, "HDR_SkyDome")
-        shape = cmds.listRelatives(transform, shapes=True, fullPath=True)[0]
-    except Exception:
-        pass
-    # 默认 camera=0
-    try:
-        if cmds.attributeQuery("camera", n=shape, exists=True):
-            cmds.setAttr(f"{shape}.camera", 1)
-    except Exception:
-        pass
+    transform = cmds.listRelatives(shape, parent=True)[0]
+    cmds.rename(transform, "HDR_SkyDome")
+    cmds.setAttr(f"{shape}.camera", 1)
     return transform, shape
 
 def connect_file_to_skydome(image_path):
     t, s = get_or_create_skydome()
-    file_nodes = cmds.ls("HDRI_file", type="file") or []
-    if file_nodes:
-        file_node = file_nodes[0]
-    else:
-        file_node = cmds.shadingNode("file", asTexture=True, name="HDRI_file")
-        p2d = cmds.shadingNode("place2dTexture", asUtility=True, name="HDRI_place2d")
-        attrs = [
-            "coverage","translateFrame","rotateFrame","mirrorU","mirrorV","stagger","wrapU","wrapV",
-            "repeatUV","offset","rotateUV","noiseUV","vertexUvOne","vertexUvTwo","vertexUvThree","vertexCameraOne"
-        ]
-        for a in attrs:
-            try:
-                cmds.connectAttr(f"{p2d}.{a}", f"{file_node}.{a}", force=True)
-            except Exception:
-                pass
-        try:
-            cmds.connectAttr(f"{p2d}.outUV", f"{file_node}.uvCoord", force=True)
-            cmds.connectAttr(f"{p2d}.outUvFilterSize", f"{file_node}.uvFilterSize", force=True)
-        except Exception:
-            pass
-    cmds.setAttr(f"{file_node}.fileTextureName", image_path.replace("\\","/"), type="string")
-    try:
-        cmds.setAttr(f"{file_node}.colorSpace", "Raw", type="string")
-    except Exception:
-        pass
-    try:
-        cmds.connectAttr(f"{file_node}.outColor", f"{s}.color", force=True)
-    except Exception:
-        pass
+    file_node = cmds.ls("HDRI_file", type="file")[0] if cmds.ls("HDRI_file", type="file") else cmds.shadingNode("file", asTexture=True, name="HDRI_file")
+    cmds.setAttr(f"{file_node}.fileTextureName", image_path.replace("\\", "/"), type="string")
+    cmds.connectAttr(f"{file_node}.outColor", f"{s}.color", force=True)
     return t, s, file_node
 
-def set_skydome_exposure(shape, value):
+def set_skydome_attr(attr, value):
     try:
-        cmds.setAttr(f"{shape}.aiExposure", float(value))
+        _, s = get_or_create_skydome()
+        cmds.setAttr(f"{s}.{attr}", float(value))
     except Exception:
         pass
 
-def set_skydome_intensity(shape, value):
+def set_skydome_rotation(value):
     try:
-        cmds.setAttr(f"{shape}.intensity", float(value))
+        t, _ = get_or_create_skydome()
+        cmds.setAttr(f"{t}.rotateY", float(value))
     except Exception:
         pass
 
-def set_skydome_rotation(transform, ry):
+def set_skydome_camera(enabled):
     try:
-        cmds.setAttr(f"{transform}.rotateY", float(ry))
+        _, s = get_or_create_skydome()
+        cmds.setAttr(f"{s}.camera", 1 if enabled else 0)
     except Exception:
         pass
 
-def set_skydome_camera(shape, enabled):
-    try:
-        if cmds.attributeQuery("camera", n=shape, exists=True):
-            cmds.setAttr(f"{shape}.camera", 1 if enabled else 0)
-    except Exception:
-        pass
-
-# ---------------------------
-# UI
-# ---------------------------
 class HDRITool(QtWidgets.QDialog):
     def __init__(self, parent=None):
-        super(HDRITool, self).__init__(parent)
+        super().__init__(parent)
+        self.setup_ui()
+        self.sync_scene_values()
+
+    def setup_ui(self):
         self.setWindowTitle(TOOL_TITLE)
         self.setMinimumWidth(700)
         self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
-
         ensure_dir(CACHE_DIR)
 
-        # 顶部菜单栏（帮助）
-        self.menu_bar = QtWidgets.QMenuBar(self)
-        self.help_menu = self.menu_bar.addMenu("帮助")
-        self.help_action = QtWidgets.QAction("关于该工具", self)
-        self.help_action.triggered.connect(self.show_help)
-        self.help_menu.addAction(self.help_action)
-
-        # 最上方：打开站点按钮
-        self.open_site_btn = QtWidgets.QPushButton("打开 Poly Haven HDRIs")
-        self.open_site_btn.clicked.connect(
-            lambda: QtGui.QDesktopServices.openUrl(QtCore.QUrl("https://polyhaven.com/hdris"))
-        )
-        self.open_site_btn.setMinimumHeight(30)
-        self.open_site_btn.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-
-        # 资产输入与分辨率/格式
-        self.asset_edit = QtWidgets.QLineEdit()
-        self.asset_edit.setPlaceholderText("资产名/资产页/直链：venice_sunset 或 https://polyhaven.com/a/venice_sunset 或官方直链 URL")
-        self.asset_edit.setText("https://polyhaven.com/a/zawiszy_czarnego")  # 示例
-
+        open_btn = QtWidgets.QPushButton("打开 Poly Haven HDRIs")
+        open_btn.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QtCore.QUrl("https://polyhaven.com/hdris")))
+        
+        self.asset_edit = QtWidgets.QLineEdit("https://polyhaven.com/a/zawiszy_czarnego")
         self.res_combo = QtWidgets.QComboBox()
         self.res_combo.addItems(SUPPORTED_RES)
         self.res_combo.setCurrentText("4k")
-
         self.fmt_combo = QtWidgets.QComboBox()
         self.fmt_combo.addItems(SUPPORTED_FMT)
         self.fmt_combo.setCurrentText("exr")
-
-        # 代理
-        self.proxy_enable_cb = QtWidgets.QCheckBox("启用代理 (HTTP/HTTPS)")
-        self.proxy_edit = QtWidgets.QLineEdit()
-        self.proxy_edit.setPlaceholderText("例如：http://host:port 或 http://user:pass@host:port")
-        self.proxy_edit.setEnabled(False)
-        self.proxy_enable_cb.stateChanged.connect(self._proxy_state_changed)
-
-        # 缓存
+        
         self.cache_label = QtWidgets.QLabel(CACHE_DIR)
-        self.cache_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-        self.cache_label = QtWidgets.QLabel(CACHE_DIR)
-        self.cache_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-        self.cache_btn = QtWidgets.QPushButton("更改缓存位置")
-        self.cache_btn.clicked.connect(self.choose_cache_dir)
-
-        # 操作（下载并应用 + 进度）
+        cache_btn = QtWidgets.QPushButton("更改缓存位置")
+        cache_btn.clicked.connect(self.choose_cache_dir)
+        
         self.download_btn = QtWidgets.QPushButton("下载并应用")
-        self.download_btn.setMinimumHeight(34)
-        self.download_btn.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.download_btn.clicked.connect(self.on_download_apply)
-
+        
         self.progress = QtWidgets.QProgressBar()
         self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-        self.progress.setTextVisible(True)
-        self.progress.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        self.progress.setMinimumHeight(20)
-
-        # Arnold 控制
-        self.exposure_spin = QtWidgets.QDoubleSpinBox()
-        self.exposure_spin.setRange(-10.0, 20.0)
-        self.exposure_spin.setSingleStep(0.25)
-        self.exposure_spin.setValue(0.0)
-        self.exposure_spin.valueChanged.connect(self.on_exposure_changed)
-
-        self.intensity_spin = QtWidgets.QDoubleSpinBox()
-        self.intensity_spin.setRange(0.0, 100000.0)
-        self.intensity_spin.setSingleStep(0.1)
-        self.intensity_spin.setDecimals(3)
-        self.intensity_spin.setValue(1.0)
-        self.intensity_spin.valueChanged.connect(self.on_intensity_changed)
-
-        self.rotate_spin = QtWidgets.QDoubleSpinBox()
-        self.rotate_spin.setRange(-9999.0, 9999.0)
-        self.rotate_spin.setSingleStep(5.0)
-        self.rotate_spin.setValue(0.0)
-        self.rotate_spin.valueChanged.connect(self.on_rotate_changed)
-
+        
+        SLIDER_WIDTH = 400
+        
+        self.exposure_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.exposure_slider.setRange(-40, 80)
+        self.exposure_slider.setFixedWidth(SLIDER_WIDTH)
+        self.exposure_slider.valueChanged.connect(self.on_exposure_changed)
+        self.exposure_label = QtWidgets.QLabel("0.0")
+        
+        self.intensity_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.intensity_slider.setRange(0, 1000)
+        self.intensity_slider.setFixedWidth(SLIDER_WIDTH)
+        self.intensity_slider.valueChanged.connect(self.on_intensity_changed)
+        self.intensity_label = QtWidgets.QLabel("1.0")
+        
+        self.rotate_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.rotate_slider.setRange(0, 360)
+        self.rotate_slider.setFixedWidth(SLIDER_WIDTH)
+        self.rotate_slider.valueChanged.connect(self.on_rotate_changed)
+        self.rotate_label = QtWidgets.QLabel("0°")
+        
         self.camera_cb = QtWidgets.QCheckBox("相机可见 (camera)")
-        self.camera_cb.setChecked(True)  # 默认 camera=1
-        self.camera_cb.toggled.connect(self.on_camera_toggled)
+        self.camera_cb.setChecked(True)
+        self.camera_cb.toggled.connect(set_skydome_camera)
 
-        # ---------------- Layout ----------------
-        main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(8)
-        main_layout.setMenuBar(self.menu_bar)
-
-        # 顶部：打开站点按钮（最上方、长条）
-        main_layout.addWidget(self.open_site_btn)
-
-        # 资源组
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(open_btn)
+        
         grp_res = QtWidgets.QGroupBox("资源")
-        res_form = QtWidgets.QFormLayout()
-        res_form.setContentsMargins(8, 8, 8, 8)
-        res_form.setSpacing(6)
-        res_form.addRow("资产/URL：", self.asset_edit)
-
-        res_row = QtWidgets.QHBoxLayout()
-        res_row.addWidget(QtWidgets.QLabel("分辨率："))
-        res_row.addWidget(self.res_combo)
-        res_row.addSpacing(12)
-        res_row.addWidget(QtWidgets.QLabel("格式："))
-        res_row.addWidget(self.fmt_combo)
-        res_row.addStretch(1)
-        res_form.addRow(res_row)
-
-        grp_res.setLayout(res_form)
-        main_layout.addWidget(grp_res)
-
-        # 网络与缓存组（下载按钮与进度条放在“更改缓存位置”下，长条显示）
+        res_layout = QtWidgets.QFormLayout(grp_res)
+        res_layout.addRow("资产/URL：", self.asset_edit)
+        hbox = QtWidgets.QHBoxLayout()
+        hbox.addWidget(QtWidgets.QLabel("分辨率："))
+        hbox.addWidget(self.res_combo)
+        hbox.addWidget(QtWidgets.QLabel("格式："))
+        hbox.addWidget(self.fmt_combo)
+        res_layout.addRow(hbox)
+        
         grp_net = QtWidgets.QGroupBox("网络与缓存")
-        net_vbox = QtWidgets.QVBoxLayout()
-        net_vbox.setContentsMargins(8, 8, 8, 8)
-        net_vbox.setSpacing(6)
-
-        # 代理行
-        proxy_row = QtWidgets.QHBoxLayout()
-        proxy_row.addWidget(self.proxy_enable_cb)
-        proxy_row.addWidget(self.proxy_edit, 1)
-        net_vbox.addLayout(proxy_row)
-
-        # 缓存行
-        cache_row = QtWidgets.QHBoxLayout()
-        cache_row.addWidget(self.cache_label, 1)
-        cache_row.addWidget(self.cache_btn)
-        net_vbox.addLayout(cache_row)
-
-        # 下载按钮（长条）
-        net_vbox.addWidget(self.download_btn)
-
-        # 进度条（长条）
-        net_vbox.addWidget(self.progress)
-
-        grp_net.setLayout(net_vbox)
-        main_layout.addWidget(grp_net)
-
-        # Arnold 控制组
+        net_layout = QtWidgets.QVBoxLayout(grp_net)
+        hbox = QtWidgets.QHBoxLayout()
+        hbox.addWidget(self.cache_label, 1)
+        hbox.addWidget(cache_btn)
+        net_layout.addLayout(hbox)
+        net_layout.addWidget(self.download_btn)
+        net_layout.addWidget(self.progress)
+        
         grp_render = QtWidgets.QGroupBox("Arnold 天光控制")
-        arn_form = QtWidgets.QFormLayout()
-        arn_form.setContentsMargins(8, 8, 8, 8)
-        arn_form.setSpacing(6)
-        arn_form.addRow("曝光 (aiExposure)：", self.exposure_spin)
-        arn_form.addRow("强度 (intensity)：", self.intensity_spin)
-        arn_form.addRow("旋转 Y：", self.rotate_spin)
-        arn_form.addRow(self.camera_cb)
-        grp_render.setLayout(arn_form)
-        main_layout.addWidget(grp_render)
+        render_layout = QtWidgets.QFormLayout(grp_render)
+        
+        exposure_layout = QtWidgets.QHBoxLayout()
+        exposure_layout.addWidget(QtWidgets.QLabel("曝光 (aiExposure):"))
+        exposure_layout.addWidget(self.exposure_slider)
+        exposure_layout.addWidget(self.exposure_label)
+        render_layout.addRow(exposure_layout)
+        
+        intensity_layout = QtWidgets.QHBoxLayout()
+        intensity_layout.addWidget(QtWidgets.QLabel("强度 (intensity):"))
+        intensity_layout.addWidget(self.intensity_slider)
+        intensity_layout.addWidget(self.intensity_label)
+        render_layout.addRow(intensity_layout)
+        
+        rotate_layout = QtWidgets.QHBoxLayout()
+        rotate_layout.addWidget(QtWidgets.QLabel("旋转 Y:"))
+        rotate_layout.addWidget(self.rotate_slider)
+        rotate_layout.addWidget(self.rotate_label)
+        render_layout.addRow(rotate_layout)
+        
+        render_layout.addRow(self.camera_cb)
+        
+        layout.addWidget(grp_res)
+        layout.addWidget(grp_net)
+        layout.addWidget(grp_render)
 
-        self.setLayout(main_layout)
-
-        # 同步场景已有值到 UI
+    def sync_scene_values(self):
         try:
             t, s = get_or_create_skydome()
-            if cmds.objExists(f"{s}.aiExposure"):
-                self.exposure_spin.setValue(cmds.getAttr(f"{s}.aiExposure"))
-            if cmds.objExists(f"{s}.intensity"):
-                self.intensity_spin.setValue(cmds.getAttr(f"{s}.intensity"))
-            if cmds.objExists(f"{t}.rotateY"):
-                self.rotate_spin.setValue(cmds.getAttr(f"{t}.rotateY"))
-            if cmds.attributeQuery("camera", n=s, exists=True):
-                self.camera_cb.setChecked(bool(cmds.getAttr(f"{s}.camera")))
+            
+            exposure = cmds.getAttr(f"{s}.aiExposure")
+            self.exposure_slider.setValue(int(exposure * 4))
+            self.exposure_label.setText(f"{exposure:.2f}")
+            
+            intensity = cmds.getAttr(f"{s}.intensity")
+            self.intensity_slider.setValue(int(intensity * 10))
+            self.intensity_label.setText(f"{intensity:.2f}")
+            
+            rotation = cmds.getAttr(f"{t}.rotateY")
+            self.rotate_slider.setValue(int(rotation))
+            self.rotate_label.setText(f"{int(rotation)}°")
+            
+            self.camera_cb.setChecked(bool(cmds.getAttr(f"{s}.camera")))
         except Exception:
             pass
 
-    # ---------- Menu: Help ----------
-    def show_help(self):
-        """显示帮助信息"""
-        help_text = "此工具架是Alex（沈捍泉）开发，版权归沈捍泉所有，严禁售卖等商业用途。工具一切解释权归沈捍泉所有。\n 联系方式：QQ：1403700807"
-        QtWidgets.QMessageBox.information(self, "帮助", help_text)
-
-    # ---------- Slots ----------
-    def _proxy_state_changed(self):
-        enabled = self.proxy_enable_cb.isChecked()
-        self.proxy_edit.setEnabled(enabled)
-
     def choose_cache_dir(self):
         global CACHE_DIR
-        d = QtWidgets.QFileDialog.getExistingDirectory(self, "选择缓存目录", CACHE_DIR)
+        d = QtWidgets.QFileDialog.getExistingDirectory(self, "选择缓存位置", CACHE_DIR)
         if d:
-            CACHE_DIR = d.replace("\\", "/")
+            CACHE_DIR = d
             ensure_dir(CACHE_DIR)
             self.cache_label.setText(CACHE_DIR)
-
-    def set_progress(self, read, total):
-        pct = int(read * 100.0 / max(total, 1))
-        self.progress.setValue(pct)
-
-    def make_client(self):
-        return HttpClient(
-            proxy_enabled=self.proxy_enable_cb.isChecked(),
-            proxy_url=self.proxy_edit.text().strip()
-        )
 
     def on_download_apply(self):
         text = self.asset_edit.text().strip()
         asset, url_res, url_fmt = parse_input(text)
         if not asset:
-            QtWidgets.QMessageBox.warning(
-                self, TOOL_TITLE,
-                "无法解析输入，请输入资产名/资产页 URL，或粘贴 Poly Haven 直链 URL"
-            )
+            QtWidgets.QMessageBox.warning(self, TOOL_TITLE, "无法解析输入")
             return
 
-        # 若用户粘贴了直链，优先用直链里的分辨率/格式；否则用 UI 选择
         pref_res = url_res or self.res_combo.currentText()
         pref_fmt = url_fmt or self.fmt_combo.currentText()
-
-        # 同步 UI 下拉到已识别的直链参数（可选）
-        if url_res and self.res_combo.findText(url_res) != -1:
-            self.res_combo.setCurrentText(url_res)
-        if url_fmt and self.fmt_combo.findText(url_fmt) != -1:
-            self.fmt_combo.setCurrentText(url_fmt)
-
-        client = self.make_client()
-
-        # 友好提示（不阻断）
+        client = HttpClient()
+        
         cat = get_asset_category(client, asset)
-        if cat and cat != "hdris":
-            r = QtWidgets.QMessageBox.question(
-                self, TOOL_TITLE,
-                f"该资产分类为：{cat}\n看起来不是 HDRI。仍按 HDRI 直链规则尝试下载吗？",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.Yes
-            )
-            if r != QtWidgets.QMessageBox.Yes:
-                return
+        if cat and cat != "hdris" and QtWidgets.QMessageBox.question(
+            self, TOOL_TITLE, f"该资产分类为：{cat}\n仍按 HDRI 尝试下载吗？"
+        ) != QtWidgets.QMessageBox.Yes:
+            return
 
         self.progress.setValue(0)
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
-            save_path, used_res, used_fmt, tried_urls = try_download_with_fallbacks(
-                client, asset, pref_res, pref_fmt, progress_cb=self.set_progress
+            save_path, res, fmt, tried = try_download(
+                client, asset, pref_res, pref_fmt, self.set_progress
             )
             if save_path:
-                t, s, file_node = connect_file_to_skydome(save_path)
-                # 应用当前 UI 的曝光、强度、旋转、相机可见性
-                set_skydome_exposure(s, self.exposure_spin.value())
-                set_skydome_intensity(s, self.intensity_spin.value())
-                set_skydome_rotation(t, self.rotate_spin.value())
-                set_skydome_camera(s, self.camera_cb.isChecked())
+                connect_file_to_skydome(save_path)
                 self.progress.setValue(100)
-                QtWidgets.QMessageBox.information(
-                    self, TOOL_TITLE,
-                    f"下载并应用成功！\n文件：{save_path}\n分辨率：{used_res}\n格式：{used_fmt}"
-                )
+                QtWidgets.QMessageBox.information(self, TOOL_TITLE, f"下载并应用成功！\n{res} {fmt}")
             else:
-                # 失败时展示尝试过的 URL，便于排查
-                msg = "下载失败，以下 URL 已尝试：\n\n" + "\n".join(tried_urls or [])
-                QtWidgets.QMessageBox.warning(self, TOOL_TITLE, msg)
+                QtWidgets.QMessageBox.warning(self, TOOL_TITLE, "下载失败\n尝试URL:\n" + "\n".join(tried))
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, TOOL_TITLE, f"发生错误：\n{e}")
+            QtWidgets.QMessageBox.critical(self, TOOL_TITLE, f"错误：{e}")
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
 
-    def on_exposure_changed(self, val):
-        try:
-            _, s = get_or_create_skydome()
-            set_skydome_exposure(s, val)
-        except Exception:
-            pass
-
-    def on_intensity_changed(self, val):
-        try:
-            _, s = get_or_create_skydome()
-            set_skydome_intensity(s, val)
-        except Exception:
-            pass
-
-    def on_rotate_changed(self, val):
-        try:
-            t, _ = get_or_create_skydome()
-            set_skydome_rotation(t, val)
-        except Exception:
-            pass
-
-    def on_camera_toggled(self, enabled):
-        try:
-            _, s = get_or_create_skydome()
-            set_skydome_camera(s, enabled)
-        except Exception:
-            pass
-
-# ---------------------------
-# Entry
-# ---------------------------
-_dlg_instance = None
+    def set_progress(self, read, total):
+        self.progress.setValue(int(read * 100 / max(total, 1)))
+        
+    def on_exposure_changed(self, value):
+        exposure = value / 4.0
+        self.exposure_label.setText(f"{exposure:.2f}")
+        set_skydome_attr("aiExposure", exposure)
+        
+    def on_intensity_changed(self, value):
+        intensity = value / 10.0
+        self.intensity_label.setText(f"{intensity:.2f}")
+        set_skydome_attr("intensity", intensity)
+        
+    def on_rotate_changed(self, value):
+        self.rotate_label.setText(f"{value}°")
+        set_skydome_rotation(value)
 
 def show_hdri_tool():
     global _dlg_instance
-    try:
-        if _dlg_instance is not None:
-            try:
-                _dlg_instance.close()
-            except Exception:
-                pass
-            _dlg_instance.deleteLater()
-    except Exception:
-        pass
-    _dlg_instance = HDRITool(parent=None)
+    try: _dlg_instance.close()
+    except: pass
+    _dlg_instance = HDRITool()
     _dlg_instance.show()
-    _dlg_instance.raise_()
-    _dlg_instance.activateWindow()
 
-# 直接显示工具
 show_hdri_tool()
