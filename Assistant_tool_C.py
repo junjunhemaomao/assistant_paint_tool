@@ -10,14 +10,16 @@ import sys
 import threading
 import time
 import importlib
+import webbrowser  # 添加webbrowser模块用于打开网页
 
 # =============================================
 # 全局变量和常量
 # =============================================
-CURRENT_VERSION = "1.0"  # 修改版本号为1.0
+CURRENT_VERSION = "1.0"
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
 GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/Assistant_tool.py"
 GITHUB_BANNER_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/3D_Modeling_Assistant.png"
+GITHUB_PAGE_URL = "https://github.com/junjunhemaomao/assistant_paint_tool"  # 添加GitHub页面URL
 
 try:
     LOCAL_SCRIPT_PATH = os.path.abspath(__file__)
@@ -353,6 +355,14 @@ def maya_main_window():
     ptr = omui.MQtUtil.mainWindow()
     return wrapInstance(int(ptr), QtWidgets.QWidget)
 
+class ClickableLabel(QtWidgets.QLabel):
+    """可点击的标签类"""
+    clicked = QtCore.Signal()
+    
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self.clicked.emit()
+
 class ModelingToolsUI(QtWidgets.QDialog):
     """3D Assistant Tools UI"""
     def __init__(self, parent=maya_main_window()):
@@ -382,7 +392,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # 更新按钮的特殊样式
         self.update_btn_style_disabled = """
             QPushButton {
-                background-color: #666666;  /* 深灰色 */
+                background-color: #7f8c8d;  /* 深灰色 */
                 color: white;
                 border-radius: 6px;
                 padding: 6px;
@@ -412,9 +422,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
             QPushButton:pressed { background-color: #219653; }
         """
         
-        # Banner
-        self.banner_label = QtWidgets.QLabel()
+        # Banner - 使用可点击的标签
+        self.banner_label = ClickableLabel()
         self.banner_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.banner_label.setCursor(QtCore.Qt.PointingHandCursor)  # 设置手型光标
         try:
             response = requests.get(GITHUB_BANNER_URL)
             if response.status_code == 200:
@@ -750,6 +761,13 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # Update connections
         self.btn_check_updates.clicked.connect(check_for_updates)
         self.btn_update.clicked.connect(update_tool)
+        
+        # Banner click connection
+        self.banner_label.clicked.connect(self.open_github_page)
+    
+    def open_github_page(self):
+        """打开GitHub页面"""
+        webbrowser.open(GITHUB_PAGE_URL)
 
 # =============================================
 # 工具调用
