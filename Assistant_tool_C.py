@@ -14,7 +14,7 @@ import importlib
 # =============================================
 # 全局变量和常量
 # =============================================
-CURRENT_VERSION = "3.5"
+CURRENT_VERSION = "1.0"  # 修改版本号为1.0
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
 GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/Assistant_tool.py"
 GITHUB_BANNER_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/3D_Modeling_Assistant.png"
@@ -382,7 +382,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # 更新按钮的特殊样式
         self.update_btn_style_disabled = """
             QPushButton {
-                background-color: #7f8c8d;  /* 深灰色 */
+                background-color: #666666;  /* 深灰色 */
                 color: white;
                 border-radius: 6px;
                 padding: 6px;
