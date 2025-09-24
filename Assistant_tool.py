@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from maya import cmds, mel
 from PySide2 import QtWidgets, QtCore, QtGui
 from shiboken2 import wrapInstance
@@ -17,7 +16,6 @@ import ssl
 import urllib.request
 import urllib.error
 
-# Poly Haven HDRI 相关代码
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PolyHaven_HDRI")
 SUPPORTED_RES = ["1k", "2k", "4k", "8k"] 
 SUPPORTED_FMT = ["hdr", "exr"]
@@ -177,7 +175,6 @@ def set_skydome_camera(enabled):
     except Exception:
         pass
 
-# 原始工具代码
 CURRENT_VERSION = "1.0"
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
 GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/Assistant_tool.py"
@@ -201,6 +198,9 @@ COLOR_PRESETS = [
     {"name": "Dark Gray", "rgb": (0.3, 0.3, 0.3)},
     {"name": "Charcoal", "rgb": (0.1, 0.1, 0.1)}
 ]
+
+COLOR_MAP_PATH = ""
+OPACITY_MAP_PATH = ""
 
 def universal_merge_to_center(*args):
     sel = cmds.ls(selection=True, flatten=True)
@@ -403,6 +403,80 @@ def update_tool(*args):
             threading.Thread(target=reload_ui).start()
     except Exception as e: cmds.warning(f"Error updating tool: {e}")
 
+def create_transparency_material(color_info, color_map_path=None, opacity_map_path=None):
+    name, rgb = color_info["name"], color_info["rgb"]
+    material = cmds.shadingNode('aiStandardSurface', asShader=True, name=f'{name}_transparency_mat')
+    
+    cmds.setAttr(material + '.base', 1.0)
+    cmds.setAttr(material + '.specular', 0.0)  
+
+    if color_map_path and os.path.exists(color_map_path):
+        color_file_node = cmds.shadingNode('file', asTexture=True, name=f'{name}_color_file')
+        cmds.setAttr(color_file_node + '.fileTextureName', color_map_path.replace("\\", "/"), type='string')
+        cmds.connectAttr(color_file_node + '.outColor', material + '.baseColor', force=True)
+        cmds.setAttr(color_file_node + '.colorSpace', 'sRGB', type='string')
+    else:
+        cmds.setAttr(material + '.baseColor', *rgb, type='double3')
+
+    if opacity_map_path and os.path.exists(opacity_map_path):
+        opacity_file_node = cmds.shadingNode('file', asTexture=True, name=f'{name}_opacity_file')
+        cmds.setAttr(opacity_file_node + '.fileTextureName', opacity_map_path.replace("\\", "/"), type='string')
+        cmds.connectAttr(opacity_file_node + '.outColor', material + '.opacity', force=True)
+        cmds.setAttr(opacity_file_node + '.colorSpace', 'Raw', type='string')
+    
+    shading_group = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=material+'SG')
+    cmds.connectAttr(material + '.outColor', shading_group + '.surfaceShader', force=True)
+    return shading_group
+
+def assign_transparency_material():
+    selected = cmds.ls(selection=True)
+    if not selected:
+        cmds.warning("Please select objects to assign material")
+        return False
+
+    base_color = {"name": "Transparency", "rgb": (0.7, 0.7, 0.7)}
+
+    shading_group = create_transparency_material(
+        base_color, 
+        COLOR_MAP_PATH, 
+        OPACITY_MAP_PATH
+    )
+
+    cmds.sets(selected, forceElement=shading_group)
+
+    if cmds.objExists('hardwareRenderingGlobals'):
+        cmds.setAttr('hardwareRenderingGlobals.transparencyAlgorithm', 5)  # 5 = Alpha Cut
+    
+    return True
+
+def select_color_map():
+    global COLOR_MAP_PATH
+    file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+        None, 
+        "Select Color Map", 
+        "", 
+        "Image Files (*.png *.jpg *.jpeg *.tga *.tif *.tiff *.exr)"
+    )
+    
+    if file_path:
+        COLOR_MAP_PATH = file_path
+        return True
+    return False
+
+def select_opacity_map():
+    global OPACITY_MAP_PATH
+    file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+        None, 
+        "Select Opacity Map", 
+        "", 
+        "Image Files (*.png *.jpg *.jpeg *.tga *.tif *.tiff *.exr)"
+    )
+    
+    if file_path:
+        OPACITY_MAP_PATH = file_path
+        return True
+    return False
+
 def maya_main_window():
     ptr = omui.MQtUtil.mainWindow()
     return wrapInstance(int(ptr), QtWidgets.QWidget)
@@ -417,7 +491,6 @@ class ModelingToolsUI(QtWidgets.QDialog):
     def __init__(self, parent=maya_main_window()):
         super(ModelingToolsUI, self).__init__(parent)
         self.setWindowTitle(f"3D Assistant Tools v{CURRENT_VERSION}")
-        # 增加宽度到600像素以适应4K屏幕
         self.setFixedWidth(600)
         self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
         self.camera_snapshots = {}
@@ -448,19 +521,16 @@ class ModelingToolsUI(QtWidgets.QDialog):
             if response.status_code == 200:
                 pixmap = QtGui.QPixmap()
                 pixmap.loadFromData(response.content)
-                # 缩小横幅以适应600像素宽度
                 pixmap = pixmap.scaledToWidth(550, QtCore.Qt.SmoothTransformation)
                 self.banner_label.setPixmap(pixmap)
         except: pass
 
         self.tabs = QtWidgets.QTabWidget()
 
-        # 基础灯光控件
         self.btn_area_light = QtWidgets.QPushButton("Area Light")
         self.btn_sky_dome = QtWidgets.QPushButton("Sky Dome Light")
         self.btn_open_render_view = QtWidgets.QPushButton("Open Arnold RenderView")
-        
-        # Poly Haven HDRI 控件
+
         self.hdri_open_btn = QtWidgets.QPushButton("Open Poly Haven HDRIs")
         self.hdri_asset_edit = QtWidgets.QLineEdit("https://polyhaven.com/a/zawiszy_czarnego")
         self.hdri_res_combo = QtWidgets.QComboBox()
@@ -474,8 +544,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.hdri_download_btn = QtWidgets.QPushButton("Download and Apply")
         self.hdri_progress = QtWidgets.QProgressBar()
         self.hdri_progress.setRange(0, 100)
-        
-        # 增加滑块宽度以适应600像素宽度
+
         SLIDER_WIDTH = 300
         self.hdri_exposure_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.hdri_exposure_slider.setRange(-40, 80)
@@ -494,8 +563,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         
         self.hdri_camera_cb = QtWidgets.QCheckBox("Visible to Camera")
         self.hdri_camera_cb.setChecked(True)
-        
-        # 其他控件
+
         self.btn_merge_center = QtWidgets.QPushButton("Merge to Center")
         self.btn_target_weld = QtWidgets.QPushButton("Target Weld")
         self.btn_connect_vertices = QtWidgets.QPushButton("Connect Vertices")
@@ -522,6 +590,18 @@ class ModelingToolsUI(QtWidgets.QDialog):
             btn.setToolTip(color["name"])
             self.color_buttons.append(btn)
 
+        self.btn_transparency = QtWidgets.QPushButton("Assign Transparency Material")
+        self.btn_select_color_map = QtWidgets.QPushButton("Select Color Map")
+        self.btn_select_opacity_map = QtWidgets.QPushButton("Select Opacity Map")
+
+        self.label_color_path = QtWidgets.QLabel("No color map selected")
+        self.label_opacity_path = QtWidgets.QLabel("No opacity map selected")
+ 
+        self.label_color_path.setStyleSheet("color: #888888;")
+        self.label_opacity_path.setStyleSheet("color: #888888;")
+        self.label_color_path.setWordWrap(True)
+        self.label_opacity_path.setWordWrap(True)
+        
         self.btn_create_persp_cam = QtWidgets.QPushButton("Create Perspective Cam")
         self.btn_save_snapshot = QtWidgets.QPushButton("Save Snapshot")
         self.btn_restore_snapshot = QtWidgets.QPushButton("Restore Snapshot")
@@ -536,13 +616,13 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.label_footer.setAlignment(QtCore.Qt.AlignCenter)
         self.label_footer.setStyleSheet("color: gray;")
 
-        # 设置按钮样式
         buttons = [
             self.btn_merge_center, self.btn_target_weld, self.btn_connect_vertices,
             self.btn_delete_vertices, self.btn_bridge_edges, self.btn_insert_edge_loop,
             self.btn_multi_cut, self.btn_fill_hole, self.btn_bevel_edges, self.btn_extrude_faces,
             self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces,
-            self.btn_open_hypershade, self.btn_custom_color,
+            self.btn_open_hypershade, self.btn_custom_color, self.btn_transparency,
+            self.btn_select_color_map, self.btn_select_opacity_map,
             self.btn_create_persp_cam, self.btn_save_snapshot, self.btn_restore_snapshot,
             self.btn_delete_snapshot, self.btn_area_light, self.btn_sky_dome,
             self.hdri_open_btn, self.hdri_cache_btn, self.hdri_download_btn,
@@ -558,7 +638,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
 
     def create_layout(self):
         main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setSpacing(6)  # 减小间距
+        main_layout.setSpacing(6) 
         main_layout.addWidget(self.banner_label)
         main_layout.addWidget(self.tabs)
         
@@ -568,12 +648,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
         main_layout.addLayout(update_layout)
         main_layout.addWidget(self.label_footer)
 
-        # 建模选项卡
         modeling_page = QtWidgets.QWidget()
         modeling_layout = QtWidgets.QVBoxLayout(modeling_page)
-        modeling_layout.setSpacing(6)  # 减小间距
-        
-        # 创建带标题的分组函数
+        modeling_layout.setSpacing(6)
+
         def create_group(title, widgets):
             group = QtWidgets.QGroupBox(title)
             layout = QtWidgets.QGridLayout()
@@ -581,8 +659,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
                 layout.addWidget(widget, i//2, i%2)
             group.setLayout(layout)
             return group
-        
-        # 建模布局 - 调整为每行2个按钮
+
         modeling_layout.addWidget(create_group("Universal Operations", [self.btn_merge_center]))
         modeling_layout.addWidget(create_group("Vertex Operations", [
             self.btn_target_weld, self.btn_connect_vertices, self.btn_delete_vertices
@@ -598,17 +675,15 @@ class ModelingToolsUI(QtWidgets.QDialog):
             self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces
         ]))
         modeling_layout.addStretch()
-        
-        # 材质选项卡
+ 
         mat_page = QtWidgets.QWidget()
         mat_layout = QtWidgets.QVBoxLayout(mat_page)
-        mat_layout.setSpacing(6)  # 减小间距
+        mat_layout.setSpacing(6)  
         
         color_group = QtWidgets.QGroupBox("Color Presets")
         color_layout = QtWidgets.QVBoxLayout()
         
         color_grid = QtWidgets.QGridLayout()
-        # 每行5个按钮以适应600像素宽度
         for i, btn in enumerate(self.color_buttons):
             color_grid.addWidget(btn, i//5, i%5)
         color_layout.addLayout(color_grid)
@@ -620,6 +695,29 @@ class ModelingToolsUI(QtWidgets.QDialog):
         color_layout.addWidget(self.btn_custom_color)
         color_group.setLayout(color_layout)
         mat_layout.addWidget(color_group)
+
+        transparency_group = QtWidgets.QGroupBox("Transparency Material")
+        transparency_layout = QtWidgets.QVBoxLayout(transparency_group)
+ 
+        color_map_layout = QtWidgets.QVBoxLayout()
+        color_map_layout.addWidget(QtWidgets.QLabel("Color Map:"))
+        color_map_layout.addWidget(self.label_color_path)
+        color_map_layout.addWidget(self.btn_select_color_map)
+        transparency_layout.addLayout(color_map_layout)
+
+        transparency_layout.addSpacing(10)
+  
+        opacity_map_layout = QtWidgets.QVBoxLayout()
+        opacity_map_layout.addWidget(QtWidgets.QLabel("Opacity Map:"))
+        opacity_map_layout.addWidget(self.label_opacity_path)
+        opacity_map_layout.addWidget(self.btn_select_opacity_map)
+        transparency_layout.addLayout(opacity_map_layout)
+
+        transparency_layout.addSpacing(15)
+ 
+        transparency_layout.addWidget(self.btn_transparency)
+        
+        mat_layout.addWidget(transparency_group)
         
         util_group = QtWidgets.QGroupBox("Tools")
         util_layout = QtWidgets.QVBoxLayout()
@@ -627,11 +725,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
         util_group.setLayout(util_layout)
         mat_layout.addWidget(util_group)
         mat_layout.addStretch()
-        
-        # 相机选项卡
+
         cam_page = QtWidgets.QWidget()
         cam_layout = QtWidgets.QVBoxLayout(cam_page)
-        cam_layout.setSpacing(6)  # 减小间距
+        cam_layout.setSpacing(6) 
         
         cam_create_group = QtWidgets.QGroupBox("Camera")
         cam_create_layout = QtWidgets.QVBoxLayout()
@@ -653,11 +750,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
         snapshot_group.setLayout(snapshot_layout)
         cam_layout.addWidget(snapshot_group)
         cam_layout.addStretch()
-        
-        # 灯光选项卡
+
         light_page = QtWidgets.QWidget()
         light_layout = QtWidgets.QVBoxLayout(light_page)
-        light_layout.setSpacing(6)  # 减小间距
+        light_layout.setSpacing(6)  
         
         light_group = QtWidgets.QGroupBox("Light Creation")
         light_group_layout = QtWidgets.QGridLayout()
@@ -666,8 +762,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         light_group_layout.addWidget(self.btn_open_render_view, 1, 0, 1, 2)
         light_group.setLayout(light_group_layout)
         light_layout.addWidget(light_group)
-        
-        # Resource 组
+
         resource_group = QtWidgets.QGroupBox("Resource")
         resource_layout = QtWidgets.QVBoxLayout(resource_group)
         
@@ -686,8 +781,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         
         resource_layout.addWidget(self.hdri_open_btn)
         light_layout.addWidget(resource_group)
-        
-        # Cache 组
+
         cache_group = QtWidgets.QGroupBox("Cache")
         cache_layout = QtWidgets.QVBoxLayout(cache_group)
         cache_layout.addWidget(QtWidgets.QLabel("Cache Location:"))
@@ -697,8 +791,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         cache_btn_layout.addWidget(self.hdri_cache_btn)
         cache_layout.addLayout(cache_btn_layout)
         light_layout.addWidget(cache_group)
-        
-        # Download 组
+
         download_group = QtWidgets.QGroupBox("Download")
         download_layout = QtWidgets.QVBoxLayout(download_group)
         
@@ -709,8 +802,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         download_layout.addLayout(download_btn_layout)
         download_layout.addWidget(self.hdri_progress)
         light_layout.addWidget(download_group)
-        
-        # Skydome 组
+
         skydome_group = QtWidgets.QGroupBox("Skydome Control")
         skydome_layout = QtWidgets.QVBoxLayout(skydome_group)
         
@@ -731,11 +823,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
         skydome_layout.addLayout(camera_layout)
         light_layout.addWidget(skydome_group)
         light_layout.addStretch()
-        
-        # 渲染选项卡
+
         render_page = QtWidgets.QWidget()
         render_layout = QtWidgets.QVBoxLayout(render_page)
-        render_layout.setSpacing(6)  # 减小间距
+        render_layout.setSpacing(6)  
         
         render_group = QtWidgets.QGroupBox("Rendering")
         render_group_layout = QtWidgets.QVBoxLayout()
@@ -751,7 +842,6 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.tabs.addTab(render_page, "Rendering")
 
     def create_connections(self):
-        # 建模功能连接
         self.btn_merge_center.clicked.connect(universal_merge_to_center)
         self.btn_target_weld.clicked.connect(target_weld)
         self.btn_connect_vertices.clicked.connect(connect_vertices)
@@ -770,19 +860,16 @@ class ModelingToolsUI(QtWidgets.QDialog):
         
         for i, btn in enumerate(self.color_buttons):
             btn.clicked.connect(lambda checked=False, idx=i: assign_material_to_selection(COLOR_PRESETS[idx]))
-        
-        # 相机功能连接
+
         self.btn_create_persp_cam.clicked.connect(create_perspective_camera)
         self.btn_save_snapshot.clicked.connect(lambda: save_camera_snapshot(self.camera_snapshots, self.list_snapshots))
         self.btn_restore_snapshot.clicked.connect(lambda: restore_camera_snapshot(self.camera_snapshots, self.list_snapshots))
         self.btn_delete_snapshot.clicked.connect(lambda: delete_camera_snapshot(self.camera_snapshots, self.list_snapshots))
-        
-        # 灯光功能连接
+
         self.btn_area_light.clicked.connect(create_area_light)
         self.btn_sky_dome.clicked.connect(create_sky_dome_light)
         self.btn_open_render_view.clicked.connect(open_arnold_render_view)
         
-        # HDRI 功能连接
         self.hdri_open_btn.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QtCore.QUrl("https://polyhaven.com/hdris")))
         self.hdri_cache_btn.clicked.connect(self.choose_cache_dir)
         self.hdri_download_btn.clicked.connect(self.on_download_apply)
@@ -790,13 +877,15 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.hdri_intensity_slider.valueChanged.connect(self.on_intensity_changed)
         self.hdri_rotate_slider.valueChanged.connect(self.on_rotate_changed)
         self.hdri_camera_cb.toggled.connect(set_skydome_camera)
-        
-        # 更新功能连接
+
         self.btn_check_updates.clicked.connect(check_for_updates)
         self.btn_update.clicked.connect(update_tool)
         self.banner_label.clicked.connect(lambda: webbrowser.open(GITHUB_PAGE_URL))
-        
-        # 初始同步场景值
+
+        self.btn_transparency.clicked.connect(assign_transparency_material)
+        self.btn_select_color_map.clicked.connect(self.on_select_color_map)
+        self.btn_select_opacity_map.clicked.connect(self.on_select_opacity_map)
+
         self.sync_scene_values()
     
     def sync_scene_values(self):
@@ -877,6 +966,22 @@ class ModelingToolsUI(QtWidgets.QDialog):
     def on_rotate_changed(self, value):
         self.hdri_rotate_label.setText(f"{value}°")
         set_skydome_rotation(value)
+        
+    def on_select_color_map(self):
+        if select_color_map():
+            self.label_color_path.setText(COLOR_MAP_PATH)
+            self.label_color_path.setStyleSheet("color: #2ecc71;")
+        else:
+            self.label_color_path.setText("No color map selected")
+            self.label_color_path.setStyleSheet("color: #888888;")
+
+    def on_select_opacity_map(self):
+        if select_opacity_map():
+            self.label_opacity_path.setText(OPACITY_MAP_PATH)
+            self.label_opacity_path.setStyleSheet("color: #2ecc71;")
+        else:
+            self.label_opacity_path.setText("No opacity map selected")
+            self.label_opacity_path.setStyleSheet("color: #888888;")
 
 def showUI():
     global modeling_tools_dialog
