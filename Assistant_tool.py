@@ -417,8 +417,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
     def __init__(self, parent=maya_main_window()):
         super(ModelingToolsUI, self).__init__(parent)
         self.setWindowTitle(f"3D Assistant Tools v{CURRENT_VERSION}")
-        # 固定宽度为500像素
-        self.setFixedWidth(500)
+        # 增加宽度到600像素以适应4K屏幕
+        self.setFixedWidth(600)
         self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
         self.camera_snapshots = {}
         self.create_widgets()
@@ -448,8 +448,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
             if response.status_code == 200:
                 pixmap = QtGui.QPixmap()
                 pixmap.loadFromData(response.content)
-                # 缩小横幅以适应500像素宽度
-                pixmap = pixmap.scaledToWidth(400, QtCore.Qt.SmoothTransformation)
+                # 缩小横幅以适应600像素宽度
+                pixmap = pixmap.scaledToWidth(550, QtCore.Qt.SmoothTransformation)
                 self.banner_label.setPixmap(pixmap)
         except: pass
 
@@ -475,8 +475,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.hdri_progress = QtWidgets.QProgressBar()
         self.hdri_progress.setRange(0, 100)
         
-        # 缩小滑块宽度以适应500像素宽度
-        SLIDER_WIDTH = 250
+        # 增加滑块宽度以适应600像素宽度
+        SLIDER_WIDTH = 300
         self.hdri_exposure_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.hdri_exposure_slider.setRange(-40, 80)
         self.hdri_exposure_slider.setFixedWidth(SLIDER_WIDTH)
@@ -582,16 +582,18 @@ class ModelingToolsUI(QtWidgets.QDialog):
             group.setLayout(layout)
             return group
         
-        # 建模布局
+        # 建模布局 - 调整为每行2个按钮
         modeling_layout.addWidget(create_group("Universal Operations", [self.btn_merge_center]))
         modeling_layout.addWidget(create_group("Vertex Operations", [
             self.btn_target_weld, self.btn_connect_vertices, self.btn_delete_vertices
         ]))
         modeling_layout.addWidget(create_group("Edge Operations", [
             self.btn_bridge_edges, self.btn_insert_edge_loop, 
-            self.btn_multi_cut, self.btn_fill_hole, self.btn_bevel_edges
+            self.btn_multi_cut, self.btn_fill_hole
         ]))
-        modeling_layout.addWidget(create_group("Face Operations", [self.btn_extrude_faces]))
+        modeling_layout.addWidget(create_group("Face Operations", [
+            self.btn_extrude_faces, self.btn_bevel_edges
+        ]))
         modeling_layout.addWidget(create_group("Object Operations", [
             self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces
         ]))
@@ -606,9 +608,9 @@ class ModelingToolsUI(QtWidgets.QDialog):
         color_layout = QtWidgets.QVBoxLayout()
         
         color_grid = QtWidgets.QGridLayout()
-        # 每行4个按钮以适应500像素宽度
+        # 每行5个按钮以适应600像素宽度
         for i, btn in enumerate(self.color_buttons):
-            color_grid.addWidget(btn, i//4, i%4)
+            color_grid.addWidget(btn, i//5, i%5)
         color_layout.addLayout(color_grid)
         
         tip_label = QtWidgets.QLabel("Tip: Select objects then click color button to assign material")
