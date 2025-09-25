@@ -4,31 +4,22 @@ from shiboken2 import wrapInstance
 import maya.OpenMayaUI as omui
 import os, shutil, sys, threading, time, urllib.request, ssl
 
-# ========================
-# 全局变量和配置
-# ========================
 test_tool_dialog = None
-CURRENT_VERSION = "0.9"  # 测试版本号低于实际版本
+CURRENT_VERSION = "0.9" 
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
 GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/Assistant_tool.py"
 GITHUB_PAGE_URL = "https://github.com/junjunhemaomao/assistant_paint_tool"
 TIMEOUT = 10
 SSL_CTX = ssl.create_default_context()
 
-# 获取当前脚本路径
 try:
     LOCAL_SCRIPT_PATH = os.path.abspath(__file__)
 except NameError:
     LOCAL_SCRIPT_PATH = os.path.abspath(sys.argv[0])
 
-# ========================
-# 更新功能
-# ========================
 def check_for_updates():
-    """检查更新"""
     global test_tool_dialog
     try:
-        # 直接使用urllib.request
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -73,10 +64,8 @@ def check_for_updates():
         return False
 
 def update_tool():
-    """更新工具"""
     global test_tool_dialog
     try:
-        # 直接使用urllib.request
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -98,13 +87,11 @@ def update_tool():
                 
                 test_tool_dialog.close()
                 
-                # 自动重启UI
                 import importlib
                 module_name = os.path.splitext(os.path.basename(LOCAL_SCRIPT_PATH))[0]
                 if module_name in sys.modules:
                     importlib.reload(sys.modules[module_name])
-                
-                # 重新启动UI
+
                 showUI()
                 return True
     except urllib.error.URLError as e:
@@ -137,7 +124,6 @@ class TestToolUI(QtWidgets.QDialog):
         self.create_connections()
 
     def create_widgets(self):
-        """创建UI组件"""
         self.update_btn_style_disabled = """
             QPushButton { 
                 background-color: #7f8c8d; 
@@ -207,11 +193,8 @@ class TestToolUI(QtWidgets.QDialog):
         self.btn_check_updates.clicked.connect(check_for_updates)
         self.btn_update.clicked.connect(update_tool)
 
-# 启动UI
 def showUI():
-    """显示测试工具UI"""
-    global test_tool_dialog  # 添加global关键字来修改全局变量
+    global test_tool_dialog 
     test_tool_dialog = TestToolUI()
     test_tool_dialog.show()
-
 showUI()
