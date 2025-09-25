@@ -144,6 +144,7 @@ def create_sky_dome_light():
     shape = cmds.shadingNode("aiSkyDomeLight", asLight=True, name="HDR_SkyDomeShape")
     transform = cmds.listRelatives(shape, parent=True)[0]
     cmds.rename(transform, "HDR_SkyDome")
+
     return transform, shape
 
 def connect_file_to_skydome(image_path):
@@ -631,19 +632,20 @@ class ModelingToolsUI(QtWidgets.QDialog):
         
         self.geometry_buttons = []
         geometry_types = [
-            ("cube", "polyCube"),
-            ("sphere", "polySphere"),
-            ("cylinder", "polyCylinder"),
-            ("cone", "polyCone"),
-            ("plane", "polyPlane"),
-            ("torus", "polyTorus")
+            ("Cube", "polyCube", ":polyCube.png"),
+            ("Sphere", "polySphere", ":polySphere.png"),
+            ("Cylinder", "polyCylinder", ":polyCylinder.png"),
+            ("Cone", "polyCone", ":polyCone.png"),
+            ("Plane", "polyPlane", ":polyPlane.png"),
+            ("Torus", "polyTorus", ":polyTorus.png")
         ]
         
-        for geom_type, icon_base in geometry_types:
+        for geom_name, mel_cmd, icon_path in geometry_types:
             btn = QtWidgets.QPushButton()
             btn.setFixedSize(40, 40)
-            btn.setToolTip(f"Create {geom_type.capitalize()}")
-            btn.setText(geom_type[0].upper())
+            btn.setToolTip(f"Create {geom_name}")
+            btn.setIcon(QtGui.QIcon(icon_path))
+            btn.setIconSize(QtCore.QSize(32, 32))
             self.geometry_buttons.append(btn)
 
     def create_layout(self):
