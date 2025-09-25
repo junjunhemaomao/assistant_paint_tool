@@ -2,19 +2,9 @@ from maya import cmds, mel
 from PySide2 import QtWidgets, QtCore, QtGui
 from shiboken2 import wrapInstance
 import maya.OpenMayaUI as omui
-import requests
-import os
-import shutil
-import sys
-import threading
-import time
-import importlib
-import webbrowser
-import re
-import json
-import ssl
-import urllib.request
-import urllib.error
+import os, shutil, sys, threading, time, webbrowser, re, json, ssl, urllib.request, urllib.error
+
+modeling_tools_dialog = None
 
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PolyHaven_HDRI")
 SUPPORTED_RES = ["1k", "2k", "4k", "8k"] 
@@ -57,10 +47,16 @@ def parse_input(text):
 
 class HttpClient:
     def __init__(self):
-        self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=SSL_CTX))
+        try:
+            self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=SSL_CTX))
+        except ssl.SSLError:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+            cmds.warning("SSL certificate verification disabled (fallback mode)")
 
     def open(self, url, method="GET", timeout=TIMEOUT, headers=None):
-        # 使用更通用的用户代理
         req = urllib.request.Request(url, method=method, headers={"User-Agent": "Maya-PolyHaven-Integration", **(headers or {})})
         return self.opener.open(req, timeout=timeout)
 
@@ -89,10 +85,11 @@ class HttpClient:
                         f.write(data)
                         read += len(data)
                         if progress_cb and total: progress_cb(read, total)
-            os.replace(tmp_path, save_path)
+            shutil.move(tmp_path, save_path)
             return save_path
         finally:
-            if os.path.exists(tmp_path): os.remove(tmp_path)
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
 def get_asset_category(client, asset):
     try:
@@ -137,18 +134,24 @@ def try_download(client, asset, pref_res, pref_fmt, progress_cb=None):
                 continue
     return None, None, None, tried
 
-def get_or_create_skydome():
+def get_existing_skydome():
     existing = next((s for s in cmds.ls(type="aiSkyDomeLight") or [] if cmds.listRelatives(s, parent=True)), None)
-    if existing: return cmds.listRelatives(existing, parent=True)[0], existing
-    
+    if existing:
+        return cmds.listRelatives(existing, parent=True)[0], existing
+    return None, None
+
+def create_sky_dome_light():
     shape = cmds.shadingNode("aiSkyDomeLight", asLight=True, name="HDR_SkyDomeShape")
     transform = cmds.listRelatives(shape, parent=True)[0]
     cmds.rename(transform, "HDR_SkyDome")
-    cmds.setAttr(f"{shape}.camera", 1)
     return transform, shape
 
 def connect_file_to_skydome(image_path):
-    t, s = get_or_create_skydome()
+    t, s = get_existing_skydome()
+    if not t or not s:
+        t, s = create_sky_dome_light()
+        cmds.warning("No existing skydome light found, created a new one.")
+    
     file_node = cmds.ls("HDRI_file", type="file")[0] if cmds.ls("HDRI_file", type="file") else cmds.shadingNode("file", asTexture=True, name="HDRI_file")
     cmds.setAttr(f"{file_node}.fileTextureName", image_path.replace("\\", "/"), type="string")
     cmds.connectAttr(f"{file_node}.outColor", f"{s}.color", force=True)
@@ -156,24 +159,33 @@ def connect_file_to_skydome(image_path):
 
 def set_skydome_attr(attr, value):
     try:
-        _, s = get_or_create_skydome()
+        t, s = get_existing_skydome()
+        if not s:
+            cmds.warning("No skydome light found. Please create one first.")
+            return
         cmds.setAttr(f"{s}.{attr}", float(value))
-    except Exception:
-        pass
+    except Exception as e:
+        cmds.warning(f"Failed to set skydome attribute: {e}")
 
 def set_skydome_rotation(value):
     try:
-        t, _ = get_or_create_skydome()
+        t, s = get_existing_skydome()
+        if not t:
+            cmds.warning("No skydome light found. Please create one first.")
+            return
         cmds.setAttr(f"{t}.rotateY", float(value))
-    except Exception:
-        pass
+    except Exception as e:
+        cmds.warning(f"Failed to rotate skydome: {e}")
 
 def set_skydome_camera(enabled):
     try:
-        _, s = get_or_create_skydome()
+        t, s = get_existing_skydome()
+        if not s:
+            cmds.warning("No skydome light found. Please create one first.")
+            return
         cmds.setAttr(f"{s}.camera", 1 if enabled else 0)
-    except Exception:
-        pass
+    except Exception as e:
+        cmds.warning(f"Failed to set skydome visibility: {e}")
 
 CURRENT_VERSION = "1.0"
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
@@ -202,7 +214,7 @@ COLOR_PRESETS = [
 COLOR_MAP_PATH = ""
 OPACITY_MAP_PATH = ""
 
-def universal_merge_to_center(*args):
+def universal_merge_to_center():
     sel = cmds.ls(selection=True, flatten=True)
     vtx_list = []
     for comp in sel:
@@ -223,7 +235,7 @@ def universal_merge_to_center(*args):
     mel.eval('polyMergeVertex -d 0.000001 -ch 1;')
     cmds.select(clear=True)
 
-def target_weld(*args):
+def target_weld():
     sel = cmds.ls(orderedSelection=True, flatten=True)
     if len(sel) < 2:
         cmds.warning("Please select two vertices or objects for target weld")
@@ -234,16 +246,16 @@ def target_weld(*args):
     mel.eval('polyMergeVertex -d 0.000001 -ch 1;')
     cmds.select(clear=True)
 
-def connect_vertices(*args): mel.eval('polyConnectComponents;')
-def delete_vertices(*args): mel.eval('DeleteVertex;')
-def bridge_edges(*args): mel.eval('polyBridgeEdge -divisions 0 -ch 1;')
-def insert_edge_loop(*args): mel.eval('InsertEdgeLoopTool;')
-def fill_hole(*args): mel.eval('polyCloseBorder -ch 1;')
-def multi_cut(*args): mel.eval('MultiCutTool;')
-def extrude_faces(*args): mel.eval('PolyExtrude;')
-def bevel_edges(*args): mel.eval('BevelPolygon;')
+def connect_vertices(): mel.eval('polyConnectComponents;')
+def delete_vertices(): mel.eval('DeleteVertex;')
+def bridge_edges(): mel.eval('polyBridgeEdge -divisions 0 -ch 1;')
+def insert_edge_loop(): mel.eval('InsertEdgeLoopTool;')
+def fill_hole(): mel.eval('polyCloseBorder -ch 1;')
+def multi_cut(): mel.eval('MultiCutTool;')
+def extrude_faces(): mel.eval('PolyExtrude;')
+def bevel_edges(): mel.eval('BevelPolygon;')
 
-def separate_objects(*args):
+def separate_objects():
     sel = cmds.ls(selection=True)
     if not sel: return
     new_objs = mel.eval('polySeparate;')
@@ -252,7 +264,7 @@ def separate_objects(*args):
         cmds.centerPivot(obj)
     cmds.select(clear=True)
 
-def combine_objects(*args):
+def combine_objects():
     sel = cmds.ls(selection=True)
     if len(sel) < 2:
         cmds.warning("Please select two or more objects to combine")
@@ -263,7 +275,7 @@ def combine_objects(*args):
     cmds.centerPivot(merged_obj)
     cmds.select(clear=True)
 
-def detach_selected_faces(*args):
+def detach_selected_faces():
     orig_face_sel = cmds.filterExpand(sm=34, ex=1)
     if not orig_face_sel: return
     orig_obj = cmds.listRelatives(orig_face_sel[0], parent=True, fullPath=True)[0]
@@ -310,17 +322,13 @@ def assign_custom_color_to_selection():
         cmds.sets(selected, forceElement=shading_group)
 
 def open_hypershade():
-    hypershade_window = 'hyperShadePanel'
-    if cmds.window(hypershade_window, exists=True):
-        cmds.showWindow(hypershade_window)
+    if cmds.window('hyperShadePanel', exists=True):
+        cmds.showWindow('hyperShadePanel')
     else:
         cmds.HypershadeWindow()
 
 def create_perspective_camera():
     cam, shape = cmds.camera()
-    cmds.setAttr(cam + ".translateZ", 30)
-    cmds.setAttr(shape + ".focalLength", 35)
-    cmds.select(cam)
 
 def save_camera_snapshot(snapshot_dict, list_widget):
     cam = cmds.ls(selection=True, type="transform")
@@ -360,48 +368,53 @@ def delete_camera_snapshot(snapshot_dict, list_widget):
     list_widget.takeItem(list_widget.currentRow())
 
 def create_area_light(): cmds.shadingNode('areaLight', asLight=True)
-def create_sky_dome_light(): cmds.shadingNode('aiSkyDomeLight', asLight=True)
+
 def open_arnold_render_view(): mel.eval("RenderGlobalsWindow;")
 
-def check_for_updates(*args):
+def check_for_updates():
     global modeling_tools_dialog
     try:
-        response = requests.get(GITHUB_VERSION_URL)
-        if response.status_code == 200:
-            latest_version = response.text.strip()
-            if latest_version != CURRENT_VERSION:
-                cmds.confirmDialog(title="Update Available", message=f"New version {latest_version} available!", button=["OK"])
-                modeling_tools_dialog.btn_update.setEnabled(True)
-                modeling_tools_dialog.btn_update.setStyleSheet(modeling_tools_dialog.update_btn_style_enabled)
-            else:
-                cmds.confirmDialog(title="Up to Date", message="You are using the latest version.", button=["OK"])
-    except: pass
+        req = urllib.request.Request(GITHUB_VERSION_URL, headers={"User-Agent": "Maya-PolyHaven-Integration"})
+        with urllib.request.urlopen(req, context=SSL_CTX, timeout=TIMEOUT) as resp:
+            if resp.getcode() == 200:
+                latest_version = resp.read().decode("utf-8").strip()
+                if latest_version != CURRENT_VERSION:
+                    cmds.confirmDialog(title="Update Available", message=f"New version {latest_version} available!", button=["OK"])
+                    modeling_tools_dialog.btn_update.setEnabled(True)
+                    modeling_tools_dialog.btn_update.setStyleSheet(modeling_tools_dialog.update_btn_style_enabled)
+                else:
+                    cmds.confirmDialog(title="Up to Date", message="You are using the latest version.", button=["OK"])
+    except Exception as e:
+        cmds.warning(f"Check update failed: {str(e)}")
 
 def update_tool(*args):
     global modeling_tools_dialog
     try:
-        response = requests.get(GITHUB_SCRIPT_URL, stream=True)
-        if response.status_code == 200:
-            tmp_path = LOCAL_SCRIPT_PATH + ".tmp"
-            with open(tmp_path, "wb") as f: f.write(response.content)
-            shutil.move(tmp_path, LOCAL_SCRIPT_PATH)
-            cmds.confirmDialog(title="Update Complete", message="Tool updated successfully.", button=["OK"])
-            try:
-                modeling_tools_dialog.close()
-                modeling_tools_dialog.deleteLater()
-            except: pass
-            
-            def reload_ui():
-                time.sleep(0.2)
-                if os.path.dirname(LOCAL_SCRIPT_PATH) not in sys.path:
-                    sys.path.append(os.path.dirname(LOCAL_SCRIPT_PATH))
-                module_name = os.path.splitext(os.path.basename(LOCAL_SCRIPT_PATH))[0]
-                if module_name in sys.modules:
-                    importlib.reload(sys.modules[module_name])
-                else:
-                    importlib.import_module(module_name)
-            threading.Thread(target=reload_ui).start()
-    except Exception as e: cmds.warning(f"Error updating tool: {e}")
+        req = urllib.request.Request(GITHUB_SCRIPT_URL, headers={"User-Agent": "Maya-PolyHaven-Integration"})
+        with urllib.request.urlopen(req, context=SSL_CTX, timeout=TIMEOUT) as resp:
+            if resp.getcode() == 200:
+                tmp_path = LOCAL_SCRIPT_PATH + ".tmp"
+                with open(tmp_path, "wb") as f:
+                    f.write(resp.read())
+                shutil.move(tmp_path, LOCAL_SCRIPT_PATH)
+                cmds.confirmDialog(title="Update Complete", message="Tool updated successfully.", button=["OK"])
+                try:
+                    modeling_tools_dialog.close()
+                    modeling_tools_dialog.deleteLater()
+                except: pass
+                
+                def reload_ui():
+                    time.sleep(0.2)
+                    if os.path.dirname(LOCAL_SCRIPT_PATH) not in sys.path:
+                        sys.path.append(os.path.dirname(LOCAL_SCRIPT_PATH))
+                    module_name = os.path.splitext(os.path.basename(LOCAL_SCRIPT_PATH))[0]
+                    if module_name in sys.modules:
+                        importlib.reload(sys.modules[module_name])
+                    else:
+                        importlib.import_module(module_name)
+                threading.Thread(target=reload_ui).start()
+    except Exception as e:
+        cmds.warning(f"Error updating tool: {e}")
 
 def create_transparency_material(color_info, color_map_path=None, opacity_map_path=None):
     name, rgb = color_info["name"], color_info["rgb"]
@@ -445,7 +458,7 @@ def assign_transparency_material():
     cmds.sets(selected, forceElement=shading_group)
 
     if cmds.objExists('hardwareRenderingGlobals'):
-        cmds.setAttr('hardwareRenderingGlobals.transparencyAlgorithm', 5)  # 5 = Alpha Cut
+        cmds.setAttr('hardwareRenderingGlobals.transparencyAlgorithm', 5)
     
     return True
 
@@ -499,7 +512,6 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.create_connections()
 
     def create_widgets(self):
-        font = QtGui.QFont("Arial", 10)
         self.btn_style = """
             QPushButton { background-color: #3498db; color: white; border-radius: 6px; padding: 6px; }
             QPushButton:hover { background-color: #2980b9; }
@@ -511,19 +523,20 @@ class ModelingToolsUI(QtWidgets.QDialog):
             QPushButton:hover { background-color: #27ae60; }
             QPushButton:pressed { background-color: #219653; }
         """
-        self.check_update_btn_style = self.update_btn_style_enabled
         
         self.banner_label = ClickableLabel()
         self.banner_label.setAlignment(QtCore.Qt.AlignCenter)
         self.banner_label.setCursor(QtCore.Qt.PointingHandCursor)
         try:
-            response = requests.get(GITHUB_BANNER_URL)
-            if response.status_code == 200:
-                pixmap = QtGui.QPixmap()
-                pixmap.loadFromData(response.content)
-                pixmap = pixmap.scaledToWidth(550, QtCore.Qt.SmoothTransformation)
-                self.banner_label.setPixmap(pixmap)
-        except: pass
+            req = urllib.request.Request(GITHUB_BANNER_URL, headers={"User-Agent": "Maya-PolyHaven-Integration"})
+            with urllib.request.urlopen(req, context=SSL_CTX, timeout=TIMEOUT) as resp:
+                if resp.getcode() == 200:
+                    pixmap = QtGui.QPixmap()
+                    pixmap.loadFromData(resp.read())
+                    pixmap = pixmap.scaledToWidth(550, QtCore.Qt.SmoothTransformation)
+                    self.banner_label.setPixmap(pixmap)
+        except Exception as e:
+            cmds.warning(f"Failed to load banner: {str(e)}")
 
         self.tabs = QtWidgets.QTabWidget()
 
@@ -615,26 +628,23 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.label_footer = QtWidgets.QLabel(f"3D Assistant Tools v{CURRENT_VERSION}")
         self.label_footer.setAlignment(QtCore.Qt.AlignCenter)
         self.label_footer.setStyleSheet("color: gray;")
-
-        buttons = [
-            self.btn_merge_center, self.btn_target_weld, self.btn_connect_vertices,
-            self.btn_delete_vertices, self.btn_bridge_edges, self.btn_insert_edge_loop,
-            self.btn_multi_cut, self.btn_fill_hole, self.btn_bevel_edges, self.btn_extrude_faces,
-            self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces,
-            self.btn_open_hypershade, self.btn_custom_color, self.btn_transparency,
-            self.btn_select_color_map, self.btn_select_opacity_map,
-            self.btn_create_persp_cam, self.btn_save_snapshot, self.btn_restore_snapshot,
-            self.btn_delete_snapshot, self.btn_area_light, self.btn_sky_dome,
-            self.hdri_open_btn, self.hdri_cache_btn, self.hdri_download_btn,
-            self.btn_open_render_view, self.btn_check_updates
+        
+        self.geometry_buttons = []
+        geometry_types = [
+            ("cube", "polyCube"),
+            ("sphere", "polySphere"),
+            ("cylinder", "polyCylinder"),
+            ("cone", "polyCone"),
+            ("plane", "polyPlane"),
+            ("torus", "polyTorus")
         ]
         
-        for btn in buttons:
-            btn.setFont(font)
-            btn.setStyleSheet(self.btn_style)
-        
-        self.btn_update.setFont(font)
-        self.btn_update.setStyleSheet(self.update_btn_style_disabled)
+        for geom_type, icon_base in geometry_types:
+            btn = QtWidgets.QPushButton()
+            btn.setFixedSize(40, 40)
+            btn.setToolTip(f"Create {geom_type.capitalize()}")
+            btn.setText(geom_type[0].upper())
+            self.geometry_buttons.append(btn)
 
     def create_layout(self):
         main_layout = QtWidgets.QVBoxLayout(self)
@@ -651,6 +661,12 @@ class ModelingToolsUI(QtWidgets.QDialog):
         modeling_page = QtWidgets.QWidget()
         modeling_layout = QtWidgets.QVBoxLayout(modeling_page)
         modeling_layout.setSpacing(6)
+        
+        geometry_row = QtWidgets.QHBoxLayout()
+        geometry_row.setAlignment(QtCore.Qt.AlignCenter)
+        for btn in self.geometry_buttons:
+            geometry_row.addWidget(btn)
+        modeling_layout.addLayout(geometry_row)
 
         def create_group(title, widgets):
             group = QtWidgets.QGroupBox(title)
@@ -666,10 +682,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
         ]))
         modeling_layout.addWidget(create_group("Edge Operations", [
             self.btn_bridge_edges, self.btn_insert_edge_loop, 
-            self.btn_multi_cut, self.btn_fill_hole, self.btn_bevel_edges  # 将bevel按钮移到这里
+            self.btn_multi_cut, self.btn_fill_hole, self.btn_bevel_edges
         ]))
         modeling_layout.addWidget(create_group("Face Operations", [
-            self.btn_extrude_faces  # 这里只剩下extrude按钮
+            self.btn_extrude_faces
         ]))
         modeling_layout.addWidget(create_group("Object Operations", [
             self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces
@@ -885,28 +901,11 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.btn_transparency.clicked.connect(assign_transparency_material)
         self.btn_select_color_map.clicked.connect(self.on_select_color_map)
         self.btn_select_opacity_map.clicked.connect(self.on_select_opacity_map)
-
-        self.sync_scene_values()
-    
-    def sync_scene_values(self):
-        try:
-            t, s = get_or_create_skydome()
-            
-            exposure = cmds.getAttr(f"{s}.aiExposure")
-            self.hdri_exposure_slider.setValue(int(exposure * 4))
-            self.hdri_exposure_label.setText(f"{exposure:.2f}")
-            
-            intensity = cmds.getAttr(f"{s}.intensity")
-            self.hdri_intensity_slider.setValue(int(intensity * 10))
-            self.hdri_intensity_label.setText(f"{intensity:.2f}")
-            
-            rotation = cmds.getAttr(f"{t}.rotateY")
-            self.hdri_rotate_slider.setValue(int(rotation))
-            self.hdri_rotate_label.setText(f"{int(rotation)}°")
-            
-            self.hdri_camera_cb.setChecked(bool(cmds.getAttr(f"{s}.camera")))
-        except Exception:
-            pass
+        
+        geometry_commands = [cmds.polyCube, cmds.polySphere, cmds.polyCylinder, 
+                            cmds.polyCone, cmds.polyPlane, cmds.polyTorus]
+        for i, btn in enumerate(self.geometry_buttons):
+            btn.clicked.connect(geometry_commands[i])
 
     def choose_cache_dir(self):
         global CACHE_DIR
