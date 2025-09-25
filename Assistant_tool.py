@@ -666,10 +666,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
         ]))
         modeling_layout.addWidget(create_group("Edge Operations", [
             self.btn_bridge_edges, self.btn_insert_edge_loop, 
-            self.btn_multi_cut, self.btn_fill_hole
+            self.btn_multi_cut, self.btn_fill_hole, self.btn_bevel_edges  # 将bevel按钮移到这里
         ]))
         modeling_layout.addWidget(create_group("Face Operations", [
-            self.btn_extrude_faces, self.btn_bevel_edges
+            self.btn_extrude_faces  # 这里只剩下extrude按钮
         ]))
         modeling_layout.addWidget(create_group("Object Operations", [
             self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces
