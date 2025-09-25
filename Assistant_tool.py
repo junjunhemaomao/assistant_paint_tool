@@ -3,6 +3,7 @@ from PySide2 import QtWidgets, QtCore, QtGui
 from shiboken2 import wrapInstance
 import maya.OpenMayaUI as omui
 import os, shutil, sys, threading, time, webbrowser, re, json, ssl, urllib.request, urllib.error
+import importlib
 
 # ========================
 # 全局变量和配置
@@ -533,48 +534,114 @@ def check_for_updates():
     """检查更新"""
     global modeling_tools_dialog
     try:
+        # 使用自定义的SSL上下文设置
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        
         req = urllib.request.Request(GITHUB_VERSION_URL, headers={"User-Agent": "Maya-PolyHaven-Integration"})
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=TIMEOUT) as resp:
+        with urllib.request.urlopen(req, context=ctx, timeout=TIMEOUT) as resp:
             if resp.getcode() == 200:
                 latest_version = resp.read().decode("utf-8").strip()
+                cmds.warning(f"Current version: {CURRENT_VERSION}, Latest version: {latest_version}")
+                
                 if latest_version != CURRENT_VERSION:
-                    cmds.confirmDialog(title="Update Available", message=f"New version {latest_version} available!", button=["OK"])
+                    cmds.confirmDialog(
+                        title="Update Available", 
+                        message=f"New version {latest_version} available!\nCurrent version: {CURRENT_VERSION}",
+                        button=["OK"]
+                    )
                     modeling_tools_dialog.btn_update.setEnabled(True)
                     modeling_tools_dialog.btn_update.setStyleSheet(modeling_tools_dialog.update_btn_style_enabled)
+                    return True
                 else:
-                    cmds.confirmDialog(title="Up to Date", message="You are using the latest version.", button=["OK"])
+                    cmds.confirmDialog(
+                        title="Up to Date", 
+                        message="You are using the latest version.",
+                        button=["OK"]
+                    )
+        return False
+    except urllib.error.URLError as e:
+        cmds.warning(f"Check update failed: {str(e)}")
+        cmds.confirmDialog(
+            title="Network Error", 
+            message=f"Network error: {str(e)}",
+            button=["OK"]
+        )
+        return False
     except Exception as e:
         cmds.warning(f"Check update failed: {str(e)}")
+        cmds.confirmDialog(
+            title="Update Check Failed", 
+            message=f"Failed to check for updates: {str(e)}",
+            button=["OK"]
+        )
+        return False
 
 def update_tool(*args):
     """更新工具"""
     global modeling_tools_dialog
     try:
+        # 使用自定义的SSL上下文设置
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        
         req = urllib.request.Request(GITHUB_SCRIPT_URL, headers={"User-Agent": "Maya-PolyHaven-Integration"})
-        with urllib.request.urlopen(req, context=SSL_CTX, timeout=TIMEOUT) as resp:
+        with urllib.request.urlopen(req, context=ctx, timeout=TIMEOUT) as resp:
             if resp.getcode() == 200:
                 tmp_path = LOCAL_SCRIPT_PATH + ".tmp"
                 with open(tmp_path, "wb") as f:
                     f.write(resp.read())
+
                 shutil.move(tmp_path, LOCAL_SCRIPT_PATH)
-                cmds.confirmDialog(title="Update Complete", message="Tool updated successfully.", button=["OK"])
+                
+                cmds.confirmDialog(
+                    title="Update Complete", 
+                    message="Tool updated successfully. UI will restart automatically.",
+                    button=["OK"]
+                )
+                
+                # 关闭当前对话框
                 try:
                     modeling_tools_dialog.close()
                     modeling_tools_dialog.deleteLater()
-                except: pass
+                except Exception as e:
+                    cmds.warning(f"Error closing dialog: {str(e)}")
                 
+                # 自动重启UI
                 def reload_ui():
                     time.sleep(0.2)
-                    if os.path.dirname(LOCAL_SCRIPT_PATH) not in sys.path:
-                        sys.path.append(os.path.dirname(LOCAL_SCRIPT_PATH))
+                    # 确保脚本所在目录在Python路径中
+                    script_dir = os.path.dirname(LOCAL_SCRIPT_PATH)
+                    if script_dir not in sys.path:
+                        sys.path.append(script_dir)
+                    
+                    # 重新加载模块
                     module_name = os.path.splitext(os.path.basename(LOCAL_SCRIPT_PATH))[0]
                     if module_name in sys.modules:
                         importlib.reload(sys.modules[module_name])
                     else:
                         importlib.import_module(module_name)
+                
+                # 在新线程中重启UI，避免阻塞
                 threading.Thread(target=reload_ui).start()
+                return True
+    except urllib.error.URLError as e:
+        cmds.warning(f"Error updating tool: {str(e)}")
+        cmds.confirmDialog(
+            title="Network Error", 
+            message=f"Network error: {str(e)}",
+            button=["OK"]
+        )
     except Exception as e:
-        cmds.warning(f"Error updating tool: {e}")
+        cmds.warning(f"Error updating tool: {str(e)}")
+        cmds.confirmDialog(
+            title="Update Failed", 
+            message=f"Error updating tool: {str(e)}",
+            button=["OK"]
+        )
+    return False
 
 # ========================
 # UI相关函数
