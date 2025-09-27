@@ -18,8 +18,7 @@ SSL_CTX = ssl.create_default_context()
 CURRENT_VERSION = "1.1"
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
 GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/Assistant_tool.py"
-# GITHUB_BANNER_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/3D_Modeling_Assistant.png"
-GITHUB_BANNER_URL = "https://gd-hbimg.huaban.com/e024057fca6eb4f5b3b325e309bc188db436e4339837-EP7zC8"
+GITHUB_BANNER_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/3D_Modeling_Assistant.png"
 GITHUB_PAGE_URL = "https://help.autodesk.com/view/ARNOL/ENU/?guid=arnold_for_maya_am_Arnold_for_Maya_User_Guide_html"
 COLOR_PRESETS = [
     {"name": "Red", "rgb": (1.0, 0.0, 0.0)},
