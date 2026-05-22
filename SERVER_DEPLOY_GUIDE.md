@@ -11,6 +11,20 @@
 | 文件目录 | /var/www/assistant-paint-tool/ |
 | nginx 配置 | /etc/nginx/sites-available/assistant-paint-tool |
 
+## 同服务器其他服务
+
+| 项目 | 值 |
+|------|-----|
+| 项目名 | ComicMaster-V2 |
+| 路径 | /opt/ComicMaster-V2/ |
+| 框架 | Flask 3.1.3 |
+| 入口 | wsgi:app（Gunicorn） |
+| Python | .venv 虚拟环境 |
+| 进程 | Gunicorn 2 workers |
+| 端口 | 5001 |
+
+> 插件更新（nginx 8080）和网站（Gunicorn 5000）是独立进程、独立端口，互不影响。
+
 ## 访问地址
 
 | 文件 | URL |
