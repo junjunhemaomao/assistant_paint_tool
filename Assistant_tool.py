@@ -2,7 +2,7 @@ from maya import cmds, mel
 from PySide2 import QtWidgets, QtCore, QtGui
 from shiboken2 import wrapInstance
 import maya.OpenMayaUI as omui
-import os, shutil, sys, time, webbrowser, re, json, ssl, urllib.request
+import os, shutil, sys, webbrowser, re, json, ssl, urllib.request
 import importlib
 
 # ========================
@@ -609,15 +609,17 @@ def update_tool(*args):
             cmds.warning(f"Error closing dialog: {str(e)}")
 
         def reload_ui():
-            time.sleep(0.2)
             script_dir = os.path.dirname(LOCAL_SCRIPT_PATH)
             if script_dir not in sys.path:
                 sys.path.append(script_dir)
             module_name = os.path.splitext(os.path.basename(LOCAL_SCRIPT_PATH))[0]
-            if module_name in sys.modules:
-                importlib.reload(sys.modules[module_name])
-            else:
-                importlib.import_module(module_name)
+            try:
+                if module_name in sys.modules:
+                    importlib.reload(sys.modules[module_name])
+                else:
+                    importlib.import_module(module_name)
+            finally:
+                showUI()
 
         cmds.evalDeferred(reload_ui)
         return True
