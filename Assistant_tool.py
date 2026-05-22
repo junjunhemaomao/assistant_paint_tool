@@ -12,6 +12,78 @@ modeling_tools_dialog = None
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PolyHaven_HDRI")
 BANNER_CACHE = os.path.join(cmds.internalVar(userAppDir=True), "assistant_paint_tool", "banner_cache.png")
 BANNER_META = os.path.join(cmds.internalVar(userAppDir=True), "assistant_paint_tool", "banner_meta.txt")
+LANG = "en"
+TEXTS = {
+    # Window
+    "3D Assistant Tools": "3D 助手工具",
+    # Tabs
+    "Modeling": "建模", "Camera": "相机", "Material": "材质", "Lighting": "灯光", "Rendering": "渲染",
+    # Modeling groups
+    "Mirror Geometry": "镜像几何体",
+    "Mirror Axis": "选择镜像轴", "Choose mirror axis:": "选择镜像轴：",
+    "Universal Operations": "通用操作", "Vertex Operations": "顶点操作",
+    "Edge Operations": "边操作", "Face Operations": "面操作", "Object Operations": "对象操作",
+    # Modeling buttons
+    "Merge to Center": "合并到中心", "Target Weld": "目标焊接",
+    "Connect Vertices": "连接顶点", "Delete Vertices": "删除顶点",
+    "Bridge Edges": "桥接边", "Insert Edge Loop": "插入循环边",
+    "Multi-Cut": "多切割", "Fill Hole": "填充洞",
+    "Bevel Edges": "倒角边", "Extrude Faces": "挤出面",
+    "Separate Objects": "分离对象", "Combine Objects": "合并对象",
+    "Detach Selected Faces": "分离选中面",
+    "Freeze Transforms": "冻结变换", "Center Pivot": "居中枢轴",
+    "Pivot to Origin": "枢轴归原点",
+    # Geometry tooltips
+    "Create Cube": "创建立方体", "Create Sphere": "创建球体",
+    "Create Cylinder": "创建圆柱体", "Create Cone": "创建圆锥体",
+    "Create Plane": "创建平面", "Create Torus": "创建圆环",
+    # Material
+    "Color Presets": "颜色预设",
+    "Tip: Select objects then click color button to assign material": "提示：选择对象后点击颜色按钮即可分配材质",
+    "Custom Color": "自定义颜色",
+    "Transparency Material": "透明材质",
+    "Color Map:": "颜色贴图：", "Opacity Map:": "不透明度贴图：",
+    "No color map selected": "未选择颜色贴图", "No opacity map selected": "未选择不透明度贴图",
+    "Select Color Map": "选择颜色贴图", "Select Opacity Map": "选择不透明度贴图",
+    "Assign Transparency Material": "分配透明材质",
+    "Tools": "工具", "Open Hypershade": "打开Hypershade",
+    # Camera
+    "Create Perspective Cam": "创建透视相机",
+    "Camera Snapshots": "相机快照",
+    "Save Snapshot": "保存快照", "Restore Snapshot": "恢复快照", "Delete Snapshot": "删除快照",
+    "Saved Snapshots:": "已保存的快照：",
+    # Lighting
+    "Light Creation": "灯光创建", "Area Light": "区域光", "Sky Dome Light": "天空球灯光",
+    "Open Arnold RenderView": "打开Arnold渲染视图",
+    "Resource": "资源", "Asset/URL:": "资产/URL：",
+    "Resolution:": "分辨率：", "Format:": "格式：",
+    "Open Poly Haven HDRIs": "打开Poly Haven HDRI",
+    "Cache": "缓存", "Cache Location:": "缓存位置：", "Change Cache Location": "更改缓存位置",
+    "Download": "下载", "Download and Apply": "下载并应用",
+    "Skydome Control": "天空球控制",
+    "Exposure:": "曝光度：", "Intensity:": "强度：", "Rotation:": "旋转：",
+    "Visible to Camera": "相机可见",
+    # Update
+    "Check for Updates": "检查更新", "Update": "更新",
+    # Dialog messages
+    "Update Available": "发现新版本",
+    "New version {v} available!\nCurrent version: {c}": "新版本 {v} 可用！\n当前版本: {c}",
+    "Up to Date": "已是最新",
+    "You are using the latest version.": "您正在使用最新版本。",
+    "Network Error": "网络错误",
+    "Failed to check for updates. Please check your network.": "检查更新失败，请检查网络连接。",
+    "Update Complete": "更新完成",
+    "Tool updated successfully. UI will restart automatically.": "工具更新成功，UI 将自动重启。",
+    "Update Failed": "更新失败",
+    "Failed to download update. Please check your network.": "下载更新失败，请检查网络连接。",
+    # HDRI Download dialogs
+    "HDRI Download": "HDRI 下载",
+    "Unable to parse input": "无法解析输入",
+    "Asset category: {cat}\nStill try to download as HDRI?": "资源类别: {cat}\n仍然尝试作为 HDRI 下载？",
+    "Download and apply successful!\n{res} {fmt}": "下载并应用成功！\n{res} {fmt}",
+    "Download failed\nTried URLs:\n": "下载失败\n已尝试 URL:\n",
+    "Select Cache Location": "选择缓存位置",
+}
 SUPPORTED_RES = ["1k", "2k", "4k", "8k"] 
 SUPPORTED_FMT = ["hdr", "exr"]
 DL_HOST = "https://dl.polyhaven.org"
@@ -272,6 +344,47 @@ def universal_merge_to_center():
     mel.eval('polyMergeVertex -d 0.000001 -ch 1;')
     cmds.select(clear=True)
 
+def mirror_geometry():
+    """镜像几何体（弹出轴选择）"""
+    sel = cmds.ls(selection=True)
+    if not sel:
+        cmds.warning("Please select objects to mirror")
+        return
+
+    parent = maya_main_window()
+    dlg = QtWidgets.QDialog(parent)
+    dlg.setWindowTitle(_t("Mirror Axis"))
+    dlg.setWindowFlags(QtCore.Qt.Dialog | QtCore.Qt.WindowCloseButtonHint)
+    dlg.setFixedSize(200, 90)
+    layout = QtWidgets.QVBoxLayout(dlg)
+    layout.addWidget(QtWidgets.QLabel(_t("Choose mirror axis:")))
+    btn_row = QtWidgets.QHBoxLayout()
+    result = {"axis": None}
+
+    for axis in ("X", "Y", "Z"):
+        btn = QtWidgets.QPushButton(axis)
+        btn.setFixedSize(50, 28)
+        btn.clicked.connect(lambda checked=False, a=axis: _on_mirror_axis(a, result, dlg))
+        btn_row.addWidget(btn)
+    layout.addLayout(btn_row)
+    dlg.exec_()
+
+    if result["axis"] is None:
+        return
+
+    axis_map = {"X": "scaleX", "Y": "scaleY", "Z": "scaleZ"}
+    attr = axis_map[result["axis"]]
+
+    for obj in sel:
+        dup = cmds.duplicate(obj, name=f"{obj}_Mirror")[0]
+        cmds.setAttr(f"{dup}.{attr}", -1)
+        cmds.xform(dup, centerPivots=True)
+    cmds.select(cl=True)
+
+def _on_mirror_axis(axis, result, dlg):
+    result["axis"] = axis
+    dlg.accept()
+
 def target_weld():
     """目标焊接"""
     sel = cmds.ls(orderedSelection=True, flatten=True)
@@ -367,6 +480,14 @@ def center_pivot():
         cmds.warning("Please select objects to center pivot")
         return
     cmds.xform(centerPivots=True)
+
+def pivot_to_origin():
+    """将枢轴移到世界原点"""
+    sel = cmds.ls(selection=True)
+    if not sel:
+        cmds.warning("Please select objects to move pivot to origin")
+        return
+    cmds.xform(ws=True, pivots=(0, 0, 0))
 
 # ========================
 # 材质工具函数
@@ -565,8 +686,8 @@ def check_for_updates():
 
         if latest_version != CURRENT_VERSION:
             cmds.confirmDialog(
-                title="Update Available",
-                message=f"New version {latest_version} available!\nCurrent version: {CURRENT_VERSION}",
+                title=_t("Update Available"),
+                message=_t("New version {v} available!\nCurrent version: {c}", v=latest_version, c=CURRENT_VERSION),
                 button=["OK"]
             )
             modeling_tools_dialog.btn_update.setEnabled(True)
@@ -574,14 +695,14 @@ def check_for_updates():
             return True
         else:
             cmds.confirmDialog(
-                title="Up to Date",
-                message="You are using the latest version.",
+                title=_t("Up to Date"),
+                message=_t("You are using the latest version."),
                 button=["OK"]
             )
     else:
         cmds.confirmDialog(
-            title="Network Error",
-            message="Failed to check for updates. Please check your network.",
+            title=_t("Network Error"),
+            message=_t("Failed to check for updates. Please check your network."),
             button=["OK"]
         )
     return False
@@ -597,8 +718,8 @@ def update_tool(*args):
         shutil.move(tmp_path, LOCAL_SCRIPT_PATH)
 
         cmds.confirmDialog(
-            title="Update Complete",
-            message="Tool updated successfully. UI will restart automatically.",
+            title=_t("Update Complete"),
+            message=_t("Tool updated successfully. UI will restart automatically."),
             button=["OK"]
         )
 
@@ -625,8 +746,8 @@ def update_tool(*args):
         return True
     else:
         cmds.confirmDialog(
-            title="Network Error",
-            message="Failed to download update. Please check your network.",
+            title=_t("Network Error"),
+            message=_t("Failed to download update. Please check your network."),
             button=["OK"]
         )
     return False
@@ -696,6 +817,63 @@ def _check_and_update_banner():
     except Exception:
         pass
 
+def _t(text, **kwargs):
+    """翻译文本，kwargs 用于格式化动态内容"""
+    result = TEXTS.get(text, text) if LANG == "zh" else text
+    if kwargs:
+        result = result.format(**kwargs)
+    return result
+
+def _apply_language_to_dialog(dialog):
+    """递归更新对话框中所有控件的文本"""
+    dialog.setWindowTitle(f"{_t('3D Assistant Tools')} v{CURRENT_VERSION}")
+    _walk_widget(dialog)
+
+def _walk_widget(widget):
+    """递归遍历控件树更新文本"""
+    rev = {v: k for k, v in TEXTS.items()}
+    for child in widget.children():
+        if isinstance(child, QtWidgets.QPushButton):
+            cur = child.text()
+            if LANG == "zh" and cur in TEXTS:
+                child.setText(TEXTS[cur])
+            elif LANG == "en" and cur in rev:
+                child.setText(rev[cur])
+        elif isinstance(child, QtWidgets.QLabel):
+            cur = child.text()
+            if LANG == "zh" and cur in TEXTS:
+                child.setText(TEXTS[cur])
+            elif LANG == "en" and cur in rev:
+                child.setText(rev[cur])
+        elif isinstance(child, QtWidgets.QGroupBox):
+            cur = child.title()
+            if LANG == "zh" and cur in TEXTS:
+                child.setTitle(TEXTS[cur])
+            elif LANG == "en" and cur in rev:
+                child.setTitle(rev[cur])
+        elif isinstance(child, QtWidgets.QCheckBox):
+            cur = child.text()
+            if LANG == "zh" and cur in TEXTS:
+                child.setText(TEXTS[cur])
+            elif LANG == "en" and cur in rev:
+                child.setText(rev[cur])
+        elif isinstance(child, QtWidgets.QTabWidget):
+            for i in range(child.count()):
+                cur = child.tabText(i)
+                if LANG == "zh" and cur in TEXTS:
+                    child.setTabText(i, TEXTS[cur])
+                elif LANG == "en" and cur in rev:
+                    child.setTabText(i, rev[cur])
+        # 更新 tooltip
+        if isinstance(child, QtWidgets.QWidget):
+            tip = child.toolTip()
+            if tip:
+                if LANG == "zh" and tip in TEXTS:
+                    child.setToolTip(TEXTS[tip])
+                elif LANG == "en" and tip in rev:
+                    child.setToolTip(rev[tip])
+        _walk_widget(child)
+
 def maya_main_window():
     """获取Maya主窗口"""
     ptr = omui.MQtUtil.mainWindow()
@@ -712,7 +890,9 @@ class ModelingToolsUI(QtWidgets.QDialog):
     """3D助手工具UI"""
     def __init__(self, parent=maya_main_window()):
         super(ModelingToolsUI, self).__init__(parent)
-        self.setWindowTitle(f"3D Assistant Tools v{CURRENT_VERSION}")
+        global LANG
+        LANG = cmds.optionVar(query="assistantPaintLang") if cmds.optionVar(exists="assistantPaintLang") else "en"
+        self.setWindowTitle(f"{_t('3D Assistant Tools')} v{CURRENT_VERSION}")
         self.setFixedWidth(600)
         self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
         self.camera_snapshots = {}
@@ -742,15 +922,32 @@ class ModelingToolsUI(QtWidgets.QDialog):
             pixmap = pixmap.scaledToWidth(550, QtCore.Qt.SmoothTransformation)
             self.banner_label.setPixmap(pixmap)
 
+        lang_btn_style = """
+            QPushButton { background: transparent; border: 1px solid #555; border-radius: 3px;
+                color: #aaa; font-size: 11px; padding: 2px 6px; }
+            QPushButton:hover { border-color: #3498db; color: #3498db; }
+            QPushButton[active="true"] { border-color: #3498db; color: #3498db; background: #1a3a5c; }
+        """
+        self.btn_lang_zh = QtWidgets.QPushButton("中")
+        self.btn_lang_en = QtWidgets.QPushButton("EN")
+        self.btn_lang_zh.setFixedSize(28, 20)
+        self.btn_lang_en.setFixedSize(28, 20)
+        self.btn_lang_zh.setStyleSheet(lang_btn_style)
+        self.btn_lang_en.setStyleSheet(lang_btn_style)
+        self.btn_lang_zh.setProperty("active", LANG == "zh")
+        self.btn_lang_en.setProperty("active", LANG == "en")
+        self.btn_lang_zh.setStyleSheet(lang_btn_style)
+        self.btn_lang_en.setStyleSheet(lang_btn_style)
+
         self.tabs = QtWidgets.QTabWidget()
 
         # 灯光组件
-        self.btn_area_light = QtWidgets.QPushButton("Area Light")
-        self.btn_sky_dome = QtWidgets.QPushButton("Sky Dome Light")
-        self.btn_open_render_view = QtWidgets.QPushButton("Open Arnold RenderView")
+        self.btn_area_light = QtWidgets.QPushButton(_t("Area Light"))
+        self.btn_sky_dome = QtWidgets.QPushButton(_t("Sky Dome Light"))
+        self.btn_open_render_view = QtWidgets.QPushButton(_t("Open Arnold RenderView"))
 
         # HDRI组件
-        self.hdri_open_btn = QtWidgets.QPushButton("Open Poly Haven HDRIs")
+        self.hdri_open_btn = QtWidgets.QPushButton(_t("Open Poly Haven HDRIs"))
         self.hdri_asset_edit = QtWidgets.QLineEdit("https://polyhaven.com/a/zawiszy_czarnego")
         self.hdri_res_combo = QtWidgets.QComboBox()
         self.hdri_res_combo.addItems(SUPPORTED_RES)
@@ -759,8 +956,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.hdri_fmt_combo.addItems(SUPPORTED_FMT)
         self.hdri_fmt_combo.setCurrentText("exr")
         self.hdri_cache_label = QtWidgets.QLabel(CACHE_DIR)
-        self.hdri_cache_btn = QtWidgets.QPushButton("Change Cache Location")
-        self.hdri_download_btn = QtWidgets.QPushButton("Download and Apply")
+        self.hdri_cache_btn = QtWidgets.QPushButton(_t("Change Cache Location"))
+        self.hdri_download_btn = QtWidgets.QPushButton(_t("Download and Apply"))
         self.hdri_progress = QtWidgets.QProgressBar()
         self.hdri_progress.setRange(0, 100)
 
@@ -781,27 +978,29 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.hdri_rotate_slider.setFixedWidth(SLIDER_WIDTH)
         self.hdri_rotate_label = QtWidgets.QLabel("0°")
         
-        self.hdri_camera_cb = QtWidgets.QCheckBox("Visible to Camera")
+        self.hdri_camera_cb = QtWidgets.QCheckBox(_t("Visible to Camera"))
         self.hdri_camera_cb.setChecked(True)
 
         # 建模工具按钮
-        self.btn_merge_center = QtWidgets.QPushButton("Merge to Center")
-        self.btn_target_weld = QtWidgets.QPushButton("Target Weld")
-        self.btn_connect_vertices = QtWidgets.QPushButton("Connect Vertices")
-        self.btn_delete_vertices = QtWidgets.QPushButton("Delete Vertices")
-        self.btn_bridge_edges = QtWidgets.QPushButton("Bridge Edges")
-        self.btn_insert_edge_loop = QtWidgets.QPushButton("Insert Edge Loop")
-        self.btn_multi_cut = QtWidgets.QPushButton("Multi-Cut")
-        self.btn_fill_hole = QtWidgets.QPushButton("Fill Hole")
-        self.btn_bevel_edges = QtWidgets.QPushButton("Bevel Edges")
-        self.btn_extrude_faces = QtWidgets.QPushButton("Extrude Faces")
-        self.btn_separate_objects = QtWidgets.QPushButton("Separate Objects")
-        self.btn_combine_objects = QtWidgets.QPushButton("Combine Objects")
-        self.btn_detach_faces = QtWidgets.QPushButton("Detach Selected Faces")
-        self.btn_freeze_transforms = QtWidgets.QPushButton("Freeze Transforms")
-        self.btn_center_pivot = QtWidgets.QPushButton("Center Pivot")
-        self.btn_open_hypershade = QtWidgets.QPushButton("Open Hypershade")
-        self.btn_custom_color = QtWidgets.QPushButton("Custom Color")
+        self.btn_merge_center = QtWidgets.QPushButton(_t("Merge to Center"))
+        self.btn_mirror = QtWidgets.QPushButton(_t("Mirror Geometry"))
+        self.btn_target_weld = QtWidgets.QPushButton(_t("Target Weld"))
+        self.btn_connect_vertices = QtWidgets.QPushButton(_t("Connect Vertices"))
+        self.btn_delete_vertices = QtWidgets.QPushButton(_t("Delete Vertices"))
+        self.btn_bridge_edges = QtWidgets.QPushButton(_t("Bridge Edges"))
+        self.btn_insert_edge_loop = QtWidgets.QPushButton(_t("Insert Edge Loop"))
+        self.btn_multi_cut = QtWidgets.QPushButton(_t("Multi-Cut"))
+        self.btn_fill_hole = QtWidgets.QPushButton(_t("Fill Hole"))
+        self.btn_bevel_edges = QtWidgets.QPushButton(_t("Bevel Edges"))
+        self.btn_extrude_faces = QtWidgets.QPushButton(_t("Extrude Faces"))
+        self.btn_separate_objects = QtWidgets.QPushButton(_t("Separate Objects"))
+        self.btn_combine_objects = QtWidgets.QPushButton(_t("Combine Objects"))
+        self.btn_detach_faces = QtWidgets.QPushButton(_t("Detach Selected Faces"))
+        self.btn_freeze_transforms = QtWidgets.QPushButton(_t("Freeze Transforms"))
+        self.btn_center_pivot = QtWidgets.QPushButton(_t("Center Pivot"))
+        self.btn_pivot_origin = QtWidgets.QPushButton(_t("Pivot to Origin"))
+        self.btn_open_hypershade = QtWidgets.QPushButton(_t("Open Hypershade"))
+        self.btn_custom_color = QtWidgets.QPushButton(_t("Custom Color"))
 
         # 颜色按钮
         self.color_buttons = []
@@ -815,31 +1014,31 @@ class ModelingToolsUI(QtWidgets.QDialog):
             self.color_buttons.append(btn)
 
         # 透明材质按钮
-        self.btn_transparency = QtWidgets.QPushButton("Assign Transparency Material")
-        self.btn_select_color_map = QtWidgets.QPushButton("Select Color Map")
-        self.btn_select_opacity_map = QtWidgets.QPushButton("Select Opacity Map")
+        self.btn_transparency = QtWidgets.QPushButton(_t("Assign Transparency Material"))
+        self.btn_select_color_map = QtWidgets.QPushButton(_t("Select Color Map"))
+        self.btn_select_opacity_map = QtWidgets.QPushButton(_t("Select Opacity Map"))
 
         # 路径标签
-        self.label_color_path = QtWidgets.QLabel("No color map selected")
-        self.label_opacity_path = QtWidgets.QLabel("No opacity map selected")
+        self.label_color_path = QtWidgets.QLabel(_t("No color map selected"))
+        self.label_opacity_path = QtWidgets.QLabel(_t("No opacity map selected"))
         self.label_color_path.setStyleSheet("color: #888888;")
         self.label_opacity_path.setStyleSheet("color: #888888;")
         self.label_color_path.setWordWrap(True)
         self.label_opacity_path.setWordWrap(True)
         
         # 相机按钮
-        self.btn_create_persp_cam = QtWidgets.QPushButton("Create Perspective Cam")
-        self.btn_save_snapshot = QtWidgets.QPushButton("Save Snapshot")
-        self.btn_restore_snapshot = QtWidgets.QPushButton("Restore Snapshot")
-        self.btn_delete_snapshot = QtWidgets.QPushButton("Delete Snapshot")
+        self.btn_create_persp_cam = QtWidgets.QPushButton(_t("Create Perspective Cam"))
+        self.btn_save_snapshot = QtWidgets.QPushButton(_t("Save Snapshot"))
+        self.btn_restore_snapshot = QtWidgets.QPushButton(_t("Restore Snapshot"))
+        self.btn_delete_snapshot = QtWidgets.QPushButton(_t("Delete Snapshot"))
         self.list_snapshots = QtWidgets.QListWidget()
         self.list_snapshots.setFixedHeight(180)
 
         # 更新按钮
-        self.btn_check_updates = QtWidgets.QPushButton("Check for Updates")
-        self.btn_update = QtWidgets.QPushButton("Update")
+        self.btn_check_updates = QtWidgets.QPushButton(_t("Check for Updates"))
+        self.btn_update = QtWidgets.QPushButton(_t("Update"))
         self.btn_update.setEnabled(False)
-        self.label_footer = QtWidgets.QLabel(f"3D Assistant Tools v{CURRENT_VERSION}")
+        self.label_footer = QtWidgets.QLabel(f"{_t('3D Assistant Tools')} v{CURRENT_VERSION}")
         self.label_footer.setAlignment(QtCore.Qt.AlignCenter)
         self.label_footer.setStyleSheet("color: gray;")
         
@@ -857,7 +1056,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         for geom_name, mel_cmd, icon_path in geometry_types:
             btn = QtWidgets.QPushButton()
             btn.setFixedSize(40, 40)
-            btn.setToolTip(f"Create {geom_name}")
+            btn.setToolTip(_t(f"Create {geom_name}"))
             btn.setIcon(QtGui.QIcon(icon_path))
             btn.setIconSize(QtCore.QSize(32, 32))
             self.geometry_buttons.append(btn)
@@ -865,8 +1064,15 @@ class ModelingToolsUI(QtWidgets.QDialog):
     def create_layout(self):
         """布局UI组件"""
         main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setSpacing(6) 
+        main_layout.setSpacing(6)
         main_layout.addWidget(self.banner_label)
+
+        lang_row = QtWidgets.QHBoxLayout()
+        lang_row.addStretch()
+        lang_row.addWidget(self.btn_lang_zh)
+        lang_row.addWidget(self.btn_lang_en)
+        main_layout.addLayout(lang_row)
+
         main_layout.addWidget(self.tabs)
         
         update_layout = QtWidgets.QHBoxLayout()
@@ -895,20 +1101,20 @@ class ModelingToolsUI(QtWidgets.QDialog):
             group.setLayout(layout)
             return group
 
-        modeling_layout.addWidget(create_group("Universal Operations", [self.btn_merge_center]))
-        modeling_layout.addWidget(create_group("Vertex Operations", [
+        modeling_layout.addWidget(create_group(_t("Universal Operations"), [self.btn_merge_center, self.btn_mirror]))
+        modeling_layout.addWidget(create_group(_t("Vertex Operations"), [
             self.btn_target_weld, self.btn_connect_vertices, self.btn_delete_vertices
         ]))
-        modeling_layout.addWidget(create_group("Edge Operations", [
+        modeling_layout.addWidget(create_group(_t("Edge Operations"), [
             self.btn_bridge_edges, self.btn_insert_edge_loop, 
             self.btn_multi_cut, self.btn_fill_hole, self.btn_bevel_edges
         ]))
-        modeling_layout.addWidget(create_group("Face Operations", [
+        modeling_layout.addWidget(create_group(_t("Face Operations"), [
             self.btn_extrude_faces
         ]))
-        modeling_layout.addWidget(create_group("Object Operations", [
+        modeling_layout.addWidget(create_group(_t("Object Operations"), [
             self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces,
-            self.btn_freeze_transforms, self.btn_center_pivot
+            self.btn_freeze_transforms, self.btn_center_pivot, self.btn_pivot_origin
         ]))
         modeling_layout.addStretch()
  
@@ -917,15 +1123,15 @@ class ModelingToolsUI(QtWidgets.QDialog):
         mat_layout = QtWidgets.QVBoxLayout(mat_page)
         mat_layout.setSpacing(6)  
         
-        color_group = QtWidgets.QGroupBox("Color Presets")
+        color_group = QtWidgets.QGroupBox(_t("Color Presets"))
         color_layout = QtWidgets.QVBoxLayout()
-        
+
         color_grid = QtWidgets.QGridLayout()
         for i, btn in enumerate(self.color_buttons):
             color_grid.addWidget(btn, i//5, i%5)
         color_layout.addLayout(color_grid)
-        
-        tip_label = QtWidgets.QLabel("Tip: Select objects then click color button to assign material")
+
+        tip_label = QtWidgets.QLabel(_t("Tip: Select objects then click color button to assign material"))
         tip_label.setStyleSheet("color: #888888; font-style: italic;")
         tip_label.setAlignment(QtCore.Qt.AlignCenter)
         color_layout.addWidget(tip_label)
@@ -933,19 +1139,19 @@ class ModelingToolsUI(QtWidgets.QDialog):
         color_group.setLayout(color_layout)
         mat_layout.addWidget(color_group)
 
-        transparency_group = QtWidgets.QGroupBox("Transparency Material")
+        transparency_group = QtWidgets.QGroupBox(_t("Transparency Material"))
         transparency_layout = QtWidgets.QVBoxLayout(transparency_group)
- 
+
         color_map_layout = QtWidgets.QVBoxLayout()
-        color_map_layout.addWidget(QtWidgets.QLabel("Color Map:"))
+        color_map_layout.addWidget(QtWidgets.QLabel(_t("Color Map:")))
         color_map_layout.addWidget(self.label_color_path)
         color_map_layout.addWidget(self.btn_select_color_map)
         transparency_layout.addLayout(color_map_layout)
 
         transparency_layout.addSpacing(10)
-  
+
         opacity_map_layout = QtWidgets.QVBoxLayout()
-        opacity_map_layout.addWidget(QtWidgets.QLabel("Opacity Map:"))
+        opacity_map_layout.addWidget(QtWidgets.QLabel(_t("Opacity Map:")))
         opacity_map_layout.addWidget(self.label_opacity_path)
         opacity_map_layout.addWidget(self.btn_select_opacity_map)
         transparency_layout.addLayout(opacity_map_layout)
@@ -956,7 +1162,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         
         mat_layout.addWidget(transparency_group)
         
-        util_group = QtWidgets.QGroupBox("Tools")
+        util_group = QtWidgets.QGroupBox(_t("Tools"))
         util_layout = QtWidgets.QVBoxLayout()
         util_layout.addWidget(self.btn_open_hypershade)
         util_group.setLayout(util_layout)
@@ -966,24 +1172,24 @@ class ModelingToolsUI(QtWidgets.QDialog):
         # 相机页布局
         cam_page = QtWidgets.QWidget()
         cam_layout = QtWidgets.QVBoxLayout(cam_page)
-        cam_layout.setSpacing(6) 
-        
-        cam_create_group = QtWidgets.QGroupBox("Camera")
+        cam_layout.setSpacing(6)
+
+        cam_create_group = QtWidgets.QGroupBox(_t("Camera"))
         cam_create_layout = QtWidgets.QVBoxLayout()
         cam_create_layout.addWidget(self.btn_create_persp_cam)
         cam_create_group.setLayout(cam_create_layout)
         cam_layout.addWidget(cam_create_group)
-        
-        snapshot_group = QtWidgets.QGroupBox("Camera Snapshots")
+
+        snapshot_group = QtWidgets.QGroupBox(_t("Camera Snapshots"))
         snapshot_layout = QtWidgets.QVBoxLayout()
-        
+
         snapshot_btn_layout = QtWidgets.QHBoxLayout()
         snapshot_btn_layout.addWidget(self.btn_save_snapshot)
         snapshot_btn_layout.addWidget(self.btn_restore_snapshot)
         snapshot_btn_layout.addWidget(self.btn_delete_snapshot)
         snapshot_layout.addLayout(snapshot_btn_layout)
-        
-        snapshot_layout.addWidget(QtWidgets.QLabel("Saved Snapshots:"))
+
+        snapshot_layout.addWidget(QtWidgets.QLabel(_t("Saved Snapshots:")))
         snapshot_layout.addWidget(self.list_snapshots)
         snapshot_group.setLayout(snapshot_layout)
         cam_layout.addWidget(snapshot_group)
@@ -994,7 +1200,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         light_layout = QtWidgets.QVBoxLayout(light_page)
         light_layout.setSpacing(6)  
         
-        light_group = QtWidgets.QGroupBox("Light Creation")
+        light_group = QtWidgets.QGroupBox(_t("Light Creation"))
         light_group_layout = QtWidgets.QGridLayout()
         light_group_layout.addWidget(self.btn_area_light, 0, 0)
         light_group_layout.addWidget(self.btn_sky_dome, 0, 1)
@@ -1002,38 +1208,38 @@ class ModelingToolsUI(QtWidgets.QDialog):
         light_group.setLayout(light_group_layout)
         light_layout.addWidget(light_group)
 
-        resource_group = QtWidgets.QGroupBox("Resource")
+        resource_group = QtWidgets.QGroupBox(_t("Resource"))
         resource_layout = QtWidgets.QVBoxLayout(resource_group)
         
         url_layout = QtWidgets.QHBoxLayout()
-        url_layout.addWidget(QtWidgets.QLabel("Asset/URL:"))
+        url_layout.addWidget(QtWidgets.QLabel(_t("Asset/URL:")))
         url_layout.addWidget(self.hdri_asset_edit)
         resource_layout.addLayout(url_layout)
-        
+
         res_fmt_layout = QtWidgets.QHBoxLayout()
-        res_fmt_layout.addWidget(QtWidgets.QLabel("Resolution:"))
+        res_fmt_layout.addWidget(QtWidgets.QLabel(_t("Resolution:")))
         res_fmt_layout.addWidget(self.hdri_res_combo)
         res_fmt_layout.addSpacing(5)
-        res_fmt_layout.addWidget(QtWidgets.QLabel("Format:"))
+        res_fmt_layout.addWidget(QtWidgets.QLabel(_t("Format:")))
         res_fmt_layout.addWidget(self.hdri_fmt_combo)
         resource_layout.addLayout(res_fmt_layout)
         
         resource_layout.addWidget(self.hdri_open_btn)
         light_layout.addWidget(resource_group)
 
-        cache_group = QtWidgets.QGroupBox("Cache")
+        cache_group = QtWidgets.QGroupBox(_t("Cache"))
         cache_layout = QtWidgets.QVBoxLayout(cache_group)
-        cache_layout.addWidget(QtWidgets.QLabel("Cache Location:"))
+        cache_layout.addWidget(QtWidgets.QLabel(_t("Cache Location:")))
         cache_layout.addWidget(self.hdri_cache_label)
-        
+
         cache_btn_layout = QtWidgets.QHBoxLayout()
         cache_btn_layout.addWidget(self.hdri_cache_btn)
         cache_layout.addLayout(cache_btn_layout)
         light_layout.addWidget(cache_group)
 
-        download_group = QtWidgets.QGroupBox("Download")
+        download_group = QtWidgets.QGroupBox(_t("Download"))
         download_layout = QtWidgets.QVBoxLayout(download_group)
-        
+
         download_btn_layout = QtWidgets.QHBoxLayout()
         download_btn_layout.addStretch()
         download_btn_layout.addWidget(self.hdri_download_btn)
@@ -1042,9 +1248,9 @@ class ModelingToolsUI(QtWidgets.QDialog):
         download_layout.addWidget(self.hdri_progress)
         light_layout.addWidget(download_group)
 
-        skydome_group = QtWidgets.QGroupBox("Skydome Control")
+        skydome_group = QtWidgets.QGroupBox(_t("Skydome Control"))
         skydome_layout = QtWidgets.QVBoxLayout(skydome_group)
-        
+
         def create_slider_row(label, slider, value_label):
             """创建带标签的滑块行"""
             layout = QtWidgets.QHBoxLayout()
@@ -1052,10 +1258,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
             layout.addWidget(slider)
             layout.addWidget(value_label)
             return layout
-        
-        skydome_layout.addLayout(create_slider_row("Exposure:", self.hdri_exposure_slider, self.hdri_exposure_label))
-        skydome_layout.addLayout(create_slider_row("Intensity:", self.hdri_intensity_slider, self.hdri_intensity_label))
-        skydome_layout.addLayout(create_slider_row("Rotation:", self.hdri_rotate_slider, self.hdri_rotate_label))
+
+        skydome_layout.addLayout(create_slider_row(_t("Exposure:"), self.hdri_exposure_slider, self.hdri_exposure_label))
+        skydome_layout.addLayout(create_slider_row(_t("Intensity:"), self.hdri_intensity_slider, self.hdri_intensity_label))
+        skydome_layout.addLayout(create_slider_row(_t("Rotation:"), self.hdri_rotate_slider, self.hdri_rotate_label))
         
         camera_layout = QtWidgets.QHBoxLayout()
         camera_layout.addWidget(self.hdri_camera_cb)
@@ -1069,7 +1275,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         render_layout = QtWidgets.QVBoxLayout(render_page)
         render_layout.setSpacing(6)  
         
-        render_group = QtWidgets.QGroupBox("Rendering")
+        render_group = QtWidgets.QGroupBox(_t("Rendering"))
         render_group_layout = QtWidgets.QVBoxLayout()
         render_group_layout.addWidget(self.btn_open_render_view)
         render_group.setLayout(render_group_layout)
@@ -1077,16 +1283,20 @@ class ModelingToolsUI(QtWidgets.QDialog):
         render_layout.addStretch()
 
         # 添加标签页
-        self.tabs.addTab(modeling_page, "Modeling")
-        self.tabs.addTab(cam_page, "Camera")
-        self.tabs.addTab(mat_page, "Material")
-        self.tabs.addTab(light_page, "Lighting")
-        self.tabs.addTab(render_page, "Rendering")
+        self.tabs.addTab(modeling_page, _t("Modeling"))
+        self.tabs.addTab(cam_page, _t("Camera"))
+        self.tabs.addTab(mat_page, _t("Material"))
+        self.tabs.addTab(light_page, _t("Lighting"))
+        self.tabs.addTab(render_page, _t("Rendering"))
 
     def create_connections(self):
         """连接信号和槽"""
+        self.btn_lang_zh.clicked.connect(lambda: self.set_lang("zh"))
+        self.btn_lang_en.clicked.connect(lambda: self.set_lang("en"))
+
         # 建模工具连接
         self.btn_merge_center.clicked.connect(universal_merge_to_center)
+        self.btn_mirror.clicked.connect(mirror_geometry)
         self.btn_target_weld.clicked.connect(target_weld)
         self.btn_connect_vertices.clicked.connect(connect_vertices)
         self.btn_delete_vertices.clicked.connect(delete_vertices)
@@ -1101,6 +1311,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.btn_detach_faces.clicked.connect(detach_selected_faces)
         self.btn_freeze_transforms.clicked.connect(freeze_transforms)
         self.btn_center_pivot.clicked.connect(center_pivot)
+        self.btn_pivot_origin.clicked.connect(pivot_to_origin)
         self.btn_open_hypershade.clicked.connect(open_hypershade)
         self.btn_custom_color.clicked.connect(assign_custom_color_to_selection)
         
@@ -1144,11 +1355,23 @@ class ModelingToolsUI(QtWidgets.QDialog):
         for i, btn in enumerate(self.geometry_buttons):
             btn.clicked.connect(geometry_commands[i])
 
+    def set_lang(self, lang):
+        """切换语言"""
+        global LANG
+        LANG = lang
+        cmds.optionVar(sv=("assistantPaintLang", lang))
+        self.btn_lang_zh.setProperty("active", lang == "zh")
+        self.btn_lang_en.setProperty("active", lang == "en")
+        for btn in (self.btn_lang_zh, self.btn_lang_en):
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        _apply_language_to_dialog(self)
+
     # HDRI相关方法
     def choose_cache_dir(self):
         """选择缓存目录"""
         global CACHE_DIR
-        d = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Cache Location", CACHE_DIR)
+        d = QtWidgets.QFileDialog.getExistingDirectory(self, _t("Select Cache Location"), CACHE_DIR)
         if d:
             CACHE_DIR = d
             ensure_dir(CACHE_DIR)
@@ -1159,16 +1382,16 @@ class ModelingToolsUI(QtWidgets.QDialog):
         text = self.hdri_asset_edit.text().strip()
         asset, url_res, url_fmt = parse_input(text)
         if not asset:
-            QtWidgets.QMessageBox.warning(self, "HDRI Download", "Unable to parse input")
+            QtWidgets.QMessageBox.warning(self, _t("HDRI Download"), _t("Unable to parse input"))
             return
 
         pref_res = url_res or self.hdri_res_combo.currentText()
         pref_fmt = url_fmt or self.hdri_fmt_combo.currentText()
         client = HttpClient()
-        
+
         cat = get_asset_category(client, asset)
         if cat and cat != "hdris" and QtWidgets.QMessageBox.question(
-            self, "HDRI Download", f"Asset category: {cat}\nStill try to download as HDRI?"
+            self, _t("HDRI Download"), _t("Asset category: {cat}\nStill try to download as HDRI?", cat=cat)
         ) != QtWidgets.QMessageBox.Yes:
             return
 
@@ -1181,11 +1404,11 @@ class ModelingToolsUI(QtWidgets.QDialog):
             if save_path:
                 connect_file_to_skydome(save_path)
                 self.hdri_progress.setValue(100)
-                QtWidgets.QMessageBox.information(self, "HDRI Download", f"Download and apply successful!\n{res} {fmt}")
+                QtWidgets.QMessageBox.information(self, _t("HDRI Download"), _t("Download and apply successful!\n{res} {fmt}", res=res, fmt=fmt))
             else:
-                QtWidgets.QMessageBox.warning(self, "HDRI Download", "Download failed\nTried URLs:\n" + "\n".join(tried))
+                QtWidgets.QMessageBox.warning(self, _t("HDRI Download"), _t("Download failed\nTried URLs:\n") + "\n".join(tried))
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "HDRI Download", f"Error: {e}")
+            QtWidgets.QMessageBox.critical(self, _t("HDRI Download"), f"Error: {e}")
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
 
@@ -1217,7 +1440,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
             self.label_color_path.setText(COLOR_MAP_PATH)
             self.label_color_path.setStyleSheet("color: #2ecc71;")
         else:
-            self.label_color_path.setText("No color map selected")
+            self.label_color_path.setText(_t("No color map selected"))
             self.label_color_path.setStyleSheet("color: #888888;")
 
     def on_select_opacity_map(self):
@@ -1226,7 +1449,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
             self.label_opacity_path.setText(OPACITY_MAP_PATH)
             self.label_opacity_path.setStyleSheet("color: #2ecc71;")
         else:
-            self.label_opacity_path.setText("No opacity map selected")
+            self.label_opacity_path.setText(_t("No opacity map selected"))
             self.label_opacity_path.setStyleSheet("color: #888888;")
 
 # ========================
