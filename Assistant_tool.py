@@ -2,7 +2,7 @@ from maya import cmds, mel
 from PySide2 import QtWidgets, QtCore, QtGui
 from shiboken2 import wrapInstance
 import maya.OpenMayaUI as omui
-import os, shutil, sys, threading, time, webbrowser, re, json, ssl, urllib.request, urllib.error
+import os, shutil, sys, time, webbrowser, re, json, ssl, urllib.request
 import importlib
 
 # ========================
@@ -10,16 +10,23 @@ import importlib
 # ========================
 modeling_tools_dialog = None
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PolyHaven_HDRI")
+BANNER_CACHE = os.path.join(cmds.internalVar(userAppDir=True), "assistant_paint_tool", "banner_cache.png")
+BANNER_META = os.path.join(cmds.internalVar(userAppDir=True), "assistant_paint_tool", "banner_meta.txt")
 SUPPORTED_RES = ["1k", "2k", "4k", "8k"] 
 SUPPORTED_FMT = ["hdr", "exr"]
 DL_HOST = "https://dl.polyhaven.org"
 TIMEOUT = 60
 SSL_CTX = ssl.create_default_context()
-CURRENT_VERSION = "1.1"
+CURRENT_VERSION = "1.2"
 GITHUB_VERSION_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/version.txt"
 GITHUB_SCRIPT_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/Assistant_tool.py"
 GITHUB_BANNER_URL = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_tool/main/3D_Modeling_Assistant.png"
-GITHUB_PAGE_URL = "https://help.autodesk.com/view/ARNOL/ENU/?guid=arnold_for_maya_am_Arnold_for_Maya_User_Guide_html"
+GITHUB_PAGE_URL = "https://junjunhemaomao.github.io/Art_web_public/"
+
+UPDATE_HOST = "http://139.155.152.122:8080"
+SERVER_VERSION_URL = f"{UPDATE_HOST}/version.txt"
+SERVER_SCRIPT_URL = f"{UPDATE_HOST}/Assistant_tool.py"
+SERVER_BANNER_URL = f"{UPDATE_HOST}/3D_Modeling_Assistant.png"
 COLOR_PRESETS = [
     {"name": "Red", "rgb": (1.0, 0.0, 0.0)},
     {"name": "Green", "rgb": (0.0, 1.0, 0.0)},
@@ -345,6 +352,22 @@ def detach_selected_faces():
     cmds.delete(list(set(all_faces) - set(new_face_sel)))
     cmds.select(new_obj)
 
+def freeze_transforms():
+    """冻结变换"""
+    sel = cmds.ls(selection=True)
+    if not sel:
+        cmds.warning("Please select objects to freeze transforms")
+        return
+    cmds.makeIdentity(apply=True, translate=True, rotate=True, scale=True)
+
+def center_pivot():
+    """居中枢轴"""
+    sel = cmds.ls(selection=True)
+    if not sel:
+        cmds.warning("Please select objects to center pivot")
+        return
+    cmds.xform(centerPivots=True)
+
 # ========================
 # 材质工具函数
 # ========================
@@ -474,7 +497,9 @@ def select_opacity_map():
 # ========================
 def create_perspective_camera():
     """创建透视相机"""
-    cam, shape = cmds.camera()
+    cam = cmds.camera()[0]
+    cam = cmds.rename(cam, "PerspCam")
+    cmds.select(cam)
 
 def save_camera_snapshot(snapshot_dict, list_widget):
     """保存相机快照"""
@@ -531,114 +556,75 @@ def open_arnold_render_view():
 # 更新功能
 # ========================
 def check_for_updates():
-    """检查更新"""
+    """检查更新（服务器优先，GitHub备用）"""
     global modeling_tools_dialog
-    try:
-        # 使用自定义的SSL上下文设置
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        
-        req = urllib.request.Request(GITHUB_VERSION_URL, headers={"User-Agent": "Maya-PolyHaven-Integration"})
-        with urllib.request.urlopen(req, context=ctx, timeout=TIMEOUT) as resp:
-            if resp.getcode() == 200:
-                latest_version = resp.read().decode("utf-8").strip()
-                cmds.warning(f"Current version: {CURRENT_VERSION}, Latest version: {latest_version}")
-                
-                if latest_version != CURRENT_VERSION:
-                    cmds.confirmDialog(
-                        title="Update Available", 
-                        message=f"New version {latest_version} available!\nCurrent version: {CURRENT_VERSION}",
-                        button=["OK"]
-                    )
-                    modeling_tools_dialog.btn_update.setEnabled(True)
-                    modeling_tools_dialog.btn_update.setStyleSheet(modeling_tools_dialog.update_btn_style_enabled)
-                    return True
-                else:
-                    cmds.confirmDialog(
-                        title="Up to Date", 
-                        message="You are using the latest version.",
-                        button=["OK"]
-                    )
-        return False
-    except urllib.error.URLError as e:
-        cmds.warning(f"Check update failed: {str(e)}")
+    data, _ = _fetch_url(SERVER_VERSION_URL, GITHUB_VERSION_URL, timeout=8)
+    if data:
+        latest_version = data.decode("utf-8").strip()
+        cmds.warning(f"Current version: {CURRENT_VERSION}, Latest version: {latest_version}")
+
+        if latest_version != CURRENT_VERSION:
+            cmds.confirmDialog(
+                title="Update Available",
+                message=f"New version {latest_version} available!\nCurrent version: {CURRENT_VERSION}",
+                button=["OK"]
+            )
+            modeling_tools_dialog.btn_update.setEnabled(True)
+            modeling_tools_dialog.btn_update.setStyleSheet(modeling_tools_dialog.update_btn_style_enabled)
+            return True
+        else:
+            cmds.confirmDialog(
+                title="Up to Date",
+                message="You are using the latest version.",
+                button=["OK"]
+            )
+    else:
         cmds.confirmDialog(
-            title="Network Error", 
-            message=f"Network error: {str(e)}",
+            title="Network Error",
+            message="Failed to check for updates. Please check your network.",
             button=["OK"]
         )
-        return False
-    except Exception as e:
-        cmds.warning(f"Check update failed: {str(e)}")
-        cmds.confirmDialog(
-            title="Update Check Failed", 
-            message=f"Failed to check for updates: {str(e)}",
-            button=["OK"]
-        )
-        return False
+    return False
 
 def update_tool(*args):
-    """更新工具"""
+    """更新工具（服务器优先，GitHub备用）"""
     global modeling_tools_dialog
-    try:
-        # 使用自定义的SSL上下文设置
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        
-        req = urllib.request.Request(GITHUB_SCRIPT_URL, headers={"User-Agent": "Maya-PolyHaven-Integration"})
-        with urllib.request.urlopen(req, context=ctx, timeout=TIMEOUT) as resp:
-            if resp.getcode() == 200:
-                tmp_path = LOCAL_SCRIPT_PATH + ".tmp"
-                with open(tmp_path, "wb") as f:
-                    f.write(resp.read())
+    data, _ = _fetch_url(SERVER_SCRIPT_URL, GITHUB_SCRIPT_URL, timeout=12)
+    if data:
+        tmp_path = LOCAL_SCRIPT_PATH + ".tmp"
+        with open(tmp_path, "wb") as f:
+            f.write(data)
+        shutil.move(tmp_path, LOCAL_SCRIPT_PATH)
 
-                shutil.move(tmp_path, LOCAL_SCRIPT_PATH)
-                
-                cmds.confirmDialog(
-                    title="Update Complete", 
-                    message="Tool updated successfully. UI will restart automatically.",
-                    button=["OK"]
-                )
-                
-                # 关闭当前对话框
-                try:
-                    modeling_tools_dialog.close()
-                    modeling_tools_dialog.deleteLater()
-                except Exception as e:
-                    cmds.warning(f"Error closing dialog: {str(e)}")
-                
-                # 自动重启UI
-                def reload_ui():
-                    time.sleep(0.2)
-                    # 确保脚本所在目录在Python路径中
-                    script_dir = os.path.dirname(LOCAL_SCRIPT_PATH)
-                    if script_dir not in sys.path:
-                        sys.path.append(script_dir)
-                    
-                    # 重新加载模块
-                    module_name = os.path.splitext(os.path.basename(LOCAL_SCRIPT_PATH))[0]
-                    if module_name in sys.modules:
-                        importlib.reload(sys.modules[module_name])
-                    else:
-                        importlib.import_module(module_name)
-                
-                # 在新线程中重启UI，避免阻塞
-                threading.Thread(target=reload_ui).start()
-                return True
-    except urllib.error.URLError as e:
-        cmds.warning(f"Error updating tool: {str(e)}")
         cmds.confirmDialog(
-            title="Network Error", 
-            message=f"Network error: {str(e)}",
+            title="Update Complete",
+            message="Tool updated successfully. UI will restart automatically.",
             button=["OK"]
         )
-    except Exception as e:
-        cmds.warning(f"Error updating tool: {str(e)}")
+
+        try:
+            modeling_tools_dialog.close()
+            modeling_tools_dialog.deleteLater()
+        except Exception as e:
+            cmds.warning(f"Error closing dialog: {str(e)}")
+
+        def reload_ui():
+            time.sleep(0.2)
+            script_dir = os.path.dirname(LOCAL_SCRIPT_PATH)
+            if script_dir not in sys.path:
+                sys.path.append(script_dir)
+            module_name = os.path.splitext(os.path.basename(LOCAL_SCRIPT_PATH))[0]
+            if module_name in sys.modules:
+                importlib.reload(sys.modules[module_name])
+            else:
+                importlib.import_module(module_name)
+
+        cmds.evalDeferred(reload_ui)
+        return True
+    else:
         cmds.confirmDialog(
-            title="Update Failed", 
-            message=f"Error updating tool: {str(e)}",
+            title="Network Error",
+            message="Failed to download update. Please check your network.",
             button=["OK"]
         )
     return False
@@ -646,6 +632,68 @@ def update_tool(*args):
 # ========================
 # UI相关函数
 # ========================
+def _fetch_url(primary_url, fallback_url, timeout=8):
+    """先尝试主URL，失败则用备用URL。返回 (data, headers) 或 (None, None)"""
+    for url in (primary_url, fallback_url):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Maya-PolyHaven-Integration"})
+            with urllib.request.urlopen(req, context=SSL_CTX, timeout=timeout) as resp:
+                if resp.getcode() == 200:
+                    return resp.read(), resp.headers
+        except Exception:
+            continue
+    return None, None
+
+def load_banner_image():
+    """加载banner图，优先使用本地缓存"""
+    if os.path.exists(BANNER_CACHE) and os.path.getsize(BANNER_CACHE) > 0:
+        pixmap = QtGui.QPixmap(BANNER_CACHE)
+        if not pixmap.isNull():
+            cmds.evalDeferred(_check_and_update_banner)
+            return pixmap
+
+    return _download_banner()
+
+def _download_banner():
+    """下载banner并缓存（服务器优先，GitHub备用）"""
+    ensure_dir(os.path.dirname(BANNER_CACHE))
+    data, headers = _fetch_url(SERVER_BANNER_URL, GITHUB_BANNER_URL, timeout=8)
+    if data:
+        _save_banner(data, headers.get("Content-Length", ""))
+        pixmap = QtGui.QPixmap()
+        pixmap.loadFromData(data)
+        return pixmap
+    return None
+
+def _save_banner(data, content_length):
+    """保存banner数据和元信息"""
+    with open(BANNER_CACHE, "wb") as f:
+        f.write(data)
+    with open(BANNER_META, "w") as f:
+        f.write(content_length)
+
+def _check_and_update_banner():
+    """后台检查banner更新，有则下载供下次启动使用"""
+    try:
+        cached_size = ""
+        if os.path.exists(BANNER_META):
+            with open(BANNER_META, "r") as f:
+                cached_size = f.read().strip()
+
+        for url in (SERVER_BANNER_URL, GITHUB_BANNER_URL):
+            try:
+                req = urllib.request.Request(url, method="HEAD",
+                    headers={"User-Agent": "Maya-PolyHaven-Integration"})
+                with urllib.request.urlopen(req, context=SSL_CTX, timeout=5) as resp:
+                    remote_size = resp.headers.get("Content-Length", "")
+                    if remote_size and remote_size != cached_size:
+                        _download_banner()
+                    return
+            except Exception:
+                continue
+    except Exception:
+        pass
+
 def maya_main_window():
     """获取Maya主窗口"""
     ptr = omui.MQtUtil.mainWindow()
@@ -687,16 +735,10 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.banner_label = ClickableLabel()
         self.banner_label.setAlignment(QtCore.Qt.AlignCenter)
         self.banner_label.setCursor(QtCore.Qt.PointingHandCursor)
-        try:
-            req = urllib.request.Request(GITHUB_BANNER_URL, headers={"User-Agent": "Maya-PolyHaven-Integration"})
-            with urllib.request.urlopen(req, context=SSL_CTX, timeout=TIMEOUT) as resp:
-                if resp.getcode() == 200:
-                    pixmap = QtGui.QPixmap()
-                    pixmap.loadFromData(resp.read())
-                    pixmap = pixmap.scaledToWidth(550, QtCore.Qt.SmoothTransformation)
-                    self.banner_label.setPixmap(pixmap)
-        except Exception as e:
-            cmds.warning(f"Failed to load banner: {str(e)}")
+        pixmap = load_banner_image()
+        if pixmap:
+            pixmap = pixmap.scaledToWidth(550, QtCore.Qt.SmoothTransformation)
+            self.banner_label.setPixmap(pixmap)
 
         self.tabs = QtWidgets.QTabWidget()
 
@@ -754,6 +796,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.btn_separate_objects = QtWidgets.QPushButton("Separate Objects")
         self.btn_combine_objects = QtWidgets.QPushButton("Combine Objects")
         self.btn_detach_faces = QtWidgets.QPushButton("Detach Selected Faces")
+        self.btn_freeze_transforms = QtWidgets.QPushButton("Freeze Transforms")
+        self.btn_center_pivot = QtWidgets.QPushButton("Center Pivot")
         self.btn_open_hypershade = QtWidgets.QPushButton("Open Hypershade")
         self.btn_custom_color = QtWidgets.QPushButton("Custom Color")
 
@@ -861,7 +905,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
             self.btn_extrude_faces
         ]))
         modeling_layout.addWidget(create_group("Object Operations", [
-            self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces
+            self.btn_separate_objects, self.btn_combine_objects, self.btn_detach_faces,
+            self.btn_freeze_transforms, self.btn_center_pivot
         ]))
         modeling_layout.addStretch()
  
@@ -1052,6 +1097,8 @@ class ModelingToolsUI(QtWidgets.QDialog):
         self.btn_separate_objects.clicked.connect(separate_objects)
         self.btn_combine_objects.clicked.connect(combine_objects)
         self.btn_detach_faces.clicked.connect(detach_selected_faces)
+        self.btn_freeze_transforms.clicked.connect(freeze_transforms)
+        self.btn_center_pivot.clicked.connect(center_pivot)
         self.btn_open_hypershade.clicked.connect(open_hypershade)
         self.btn_custom_color.clicked.connect(assign_custom_color_to_selection)
         
