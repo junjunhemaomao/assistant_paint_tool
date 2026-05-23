@@ -9,9 +9,20 @@ import importlib
 # 全局变量和配置
 # ========================
 modeling_tools_dialog = None
+
+def _maya_user_dir():
+    """获取Maya用户目录，非主线程时cmds.internalVar可能返回空，fallback到~/Documents/maya"""
+    try:
+        d = cmds.internalVar(userAppDir=True)
+        if d:
+            return d
+    except Exception:
+        pass
+    return os.path.join(os.path.expanduser("~"), "Documents", "maya")
+
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PolyHaven_HDRI")
-BANNER_CACHE = os.path.join(cmds.internalVar(userAppDir=True), "assistant_paint_tool", "banner_cache.png")
-BANNER_META = os.path.join(cmds.internalVar(userAppDir=True), "assistant_paint_tool", "banner_meta.txt")
+BANNER_CACHE = os.path.join(_maya_user_dir(), "assistant_paint_tool", "banner_cache.png")
+BANNER_META = os.path.join(_maya_user_dir(), "assistant_paint_tool", "banner_meta.txt")
 LANG = "en"
 TEXTS = {
     # Window
@@ -118,7 +129,9 @@ OPACITY_MAP_PATH = ""
 # 文件系统工具函数
 # ========================
 def ensure_dir(path):
-    """确保目录存在"""
+    """确保目录存在，始终使用绝对路径避免权限错误"""
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.expanduser("~"), path)
     os.makedirs(path, exist_ok=True)
     return path
 
