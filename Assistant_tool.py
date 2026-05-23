@@ -10,19 +10,14 @@ import importlib
 # ========================
 modeling_tools_dialog = None
 
-def _maya_user_dir():
-    """获取Maya用户目录，非主线程时cmds.internalVar可能返回空，fallback到~/Documents/maya"""
-    try:
-        d = cmds.internalVar(userAppDir=True)
-        if d:
-            return d
-    except Exception:
-        pass
-    return os.path.join(os.path.expanduser("~"), "Documents", "maya")
+try:
+    TOOL_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    TOOL_DIR = os.path.join(os.path.expanduser("~"), "Documents", "maya", "scripts", "Assistant_tool")
 
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PolyHaven_HDRI")
-BANNER_CACHE = os.path.join(_maya_user_dir(), "assistant_paint_tool", "banner_cache.png")
-BANNER_META = os.path.join(_maya_user_dir(), "assistant_paint_tool", "banner_meta.txt")
+BANNER_CACHE = os.path.join(TOOL_DIR, "banner_cache.png")
+BANNER_META = os.path.join(TOOL_DIR, "banner_meta.txt")
 LANG = "en"
 TEXTS = {
     # Window
@@ -743,17 +738,11 @@ def update_tool(*args):
             cmds.warning(f"Error closing dialog: {str(e)}")
 
         def reload_ui():
-            script_dir = os.path.dirname(LOCAL_SCRIPT_PATH)
-            if script_dir not in sys.path:
-                sys.path.append(script_dir)
-            module_name = os.path.splitext(os.path.basename(LOCAL_SCRIPT_PATH))[0]
-            try:
-                if module_name in sys.modules:
-                    importlib.reload(sys.modules[module_name])
-                else:
-                    importlib.import_module(module_name)
-            finally:
-                showUI()
+            if "Assistant_tool" in sys.modules:
+                importlib.reload(sys.modules["Assistant_tool"])
+            else:
+                import Assistant_tool
+            # 模块级 showUI() 已在上一步触发，无需重复调用
 
         cmds.evalDeferred(reload_ui)
         return True
