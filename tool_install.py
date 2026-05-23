@@ -11,9 +11,11 @@ URL_SCRIPT = "https://raw.githubusercontent.com/junjunhemaomao/assistant_paint_t
 TIMEOUT, SSL_CTX = 10, ssl._create_unverified_context()
 
 try:
-    LOCAL_PATH = os.path.abspath(__file__)
+    INSTALL_DIR = os.path.dirname(os.path.abspath(__file__))
 except NameError:
-    LOCAL_PATH = os.path.abspath(sys.argv[0])
+    INSTALL_DIR = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+MAIN_SCRIPT = os.path.join(INSTALL_DIR, "Assistant_tool.py")
 
 def popup(title, msg): cmds.confirmDialog(title=title, message=msg, button=["OK"])
 
@@ -37,15 +39,20 @@ def do_update():
     try:
         req = urllib.request.Request(URL_SCRIPT, headers={"User-Agent": "Assistant"})
         with urllib.request.urlopen(req, context=SSL_CTX, timeout=TIMEOUT) as r:
-            tmp = LOCAL_PATH + ".tmp"
+            tmp = MAIN_SCRIPT + ".tmp"
             with open(tmp, "wb") as f: f.write(r.read())
-            shutil.move(tmp, LOCAL_PATH)
-        popup("Update Complete", "Tool updated. UI will restart.")
+            shutil.move(tmp, MAIN_SCRIPT)
+        popup("Install Complete", "Installed successfully!\nRun in Maya:\nimport Assistant_tool\nAssistant_tool.showUI()")
         dialog.close()
-        importlib.reload(sys.modules[os.path.splitext(os.path.basename(LOCAL_PATH))[0]])
-        showUI()
+        if MAIN_SCRIPT not in sys.path:
+            sys.path.insert(0, INSTALL_DIR)
+        if "Assistant_tool" in sys.modules:
+            importlib.reload(sys.modules["Assistant_tool"])
+        else:
+            import Assistant_tool
+        Assistant_tool.showUI()
     except Exception as e:
-        popup("Update Failed", str(e))
+        popup("Install Failed", str(e))
 
 def maya_main(): return wrapInstance(int(omui.MQtUtil.mainWindow()), QtWidgets.QWidget)
 
