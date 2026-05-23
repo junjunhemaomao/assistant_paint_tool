@@ -907,7 +907,7 @@ class ModelingToolsUI(QtWidgets.QDialog):
         LANG = cmds.optionVar(query="assistantPaintLang") if cmds.optionVar(exists="assistantPaintLang") else "en"
         self.setWindowTitle(f"{_t('3D Assistant Tools')} v{CURRENT_VERSION}")
         self.setFixedWidth(600)
-        self.setWindowFlags(self.windowFlags() ^ QtCore.Qt.WindowContextHelpButtonHint)
+        self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
         self.camera_snapshots = {}
         self.create_widgets()
         self.create_layout()
